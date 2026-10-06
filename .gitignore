@@ -20,3 +20,6 @@ local.properties
 
 # Local ODD planning mirror (kept in Engram, not in git)
 /odd/
+
+# Local release artifacts
+/dist/
