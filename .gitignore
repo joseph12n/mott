@@ -1,0 +1,19 @@
+# Android
+*.iml
+.gradle/
+/local.properties
+.idea/
+.DS_Store
+/build/
+/app/build/
+/captures
+.externalNativeBuild/
+.cxx/
+local.properties
+*.hprof
+*.keystore
+*.apk
+*.aab
+
+# Keep the Gradle wrapper jar committed so builds work without a system Gradle.
+!gradle/wrapper/gradle-wrapper.jar
