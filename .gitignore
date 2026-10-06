@@ -17,3 +17,6 @@ local.properties
 
 # Keep the Gradle wrapper jar committed so builds work without a system Gradle.
 !gradle/wrapper/gradle-wrapper.jar
+
+# Local ODD planning mirror (kept in Engram, not in git)
+/odd/
