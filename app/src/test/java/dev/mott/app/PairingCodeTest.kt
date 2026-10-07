@@ -1,6 +1,11 @@
 package dev.mott.app
 
 import dev.mott.app.data.parsePairingCode
+import dev.mott.app.ui.pair.PairResult
+import dev.mott.app.ui.pair.validatePairing
+import kotlinx.coroutines.runBlocking
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
@@ -114,5 +119,66 @@ class PairingCodeTest {
         assertThrows(IllegalArgumentException::class.java) {
             parsePairingCode("   ")
         }
+    }
+
+    @Test
+    fun `healthy hub with token reports Ok`() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(200))
+        server.start()
+        try {
+            val result = validatePairing(server.url("/").toString(), "abcdefghijklmnop")
+
+            assertEquals(PairResult.Ok, result)
+            assertEquals(
+                "Bearer abcdefghijklmnop",
+                server.takeRequest().getHeader("Authorization"),
+            )
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `wrong token reports BadToken`() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(401))
+        server.start()
+        try {
+            assertEquals(
+                PairResult.BadToken,
+                validatePairing(server.url("/").toString(), "abcdefghijklmnop"),
+            )
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `forbidden token reports BadToken`() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(403))
+        server.start()
+        try {
+            assertEquals(
+                PairResult.BadToken,
+                validatePairing(server.url("/").toString(), "abcdefghijklmnop"),
+            )
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `unreachable hub reports Unreachable`() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        val deadUrl = server.url("/").toString()
+        server.shutdown()
+
+        assertEquals(
+            PairResult.Unreachable,
+            validatePairing(deadUrl, "abcdefghijklmnop"),
+        )
     }
 }

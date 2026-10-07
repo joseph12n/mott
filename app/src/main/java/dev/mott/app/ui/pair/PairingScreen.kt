@@ -49,10 +49,19 @@ enum class PairingStatus {
     ERROR,
 }
 
+// Pairing validation outcome: Ok saves the pairing, BadToken means the
+// QR is stale, Unreachable means the phone cannot reach the hub.
+sealed interface PairResult {
+    data object Ok : PairResult
+    data object BadToken : PairResult
+    data object Unreachable : PairResult
+}
+
 // Validates a parsed pairing against GET /api/health carrying the token.
 // ApiClient skips auth on health by design, so this uses a direct OkHttp
-// call: any 2xx with the Bearer token attached counts as paired.
-suspend fun validatePairing(baseUrl: String, token: String): Boolean {
+// call: any 2xx with the Bearer token attached counts as paired, 401/403
+// mean a stale token, anything else (IO/timeout/cleartext) is unreachable.
+suspend fun validatePairing(baseUrl: String, token: String): PairResult {
     return withContext(Dispatchers.IO) {
         runCatching {
             val client = OkHttpClient()
@@ -62,9 +71,13 @@ suspend fun validatePairing(baseUrl: String, token: String): Boolean {
                 .get()
                 .build()
             client.newCall(request).execute().use { response ->
-                response.code in 200..299
+                when (response.code) {
+                    in 200..299 -> PairResult.Ok
+                    401, 403 -> PairResult.BadToken
+                    else -> PairResult.Unreachable
+                }
             }
-        }.getOrDefault(false)
+        }.getOrDefault(PairResult.Unreachable)
     }
 }
 
@@ -78,7 +91,7 @@ fun PairingScreen(
     store: PairingStore,
     onPaired: () -> Unit,
     modifier: Modifier = Modifier,
-    validate: suspend (baseUrl: String, token: String) -> Boolean = ::validatePairing,
+    validate: suspend (baseUrl: String, token: String) -> PairResult = ::validatePairing,
 ) {
     var status by remember { mutableStateOf(PairingStatus.IDLE) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -99,15 +112,23 @@ fun PairingScreen(
                 error = "CÓDIGO NO VÁLIDO. ESCANEÁ DE NUEVO O PEGALO."
                 return@launch
             }
-            val ok = try {
+            val result = try {
                 validate(parsed.baseUrl, parsed.token)
             } catch (_: Exception) {
-                false
+                PairResult.Unreachable
             }
-            if (!ok) {
-                status = PairingStatus.ERROR
-                error = "NO SE PUDO CONECTAR CON EL SERVIDOR. REVISÁ LA RED."
-                return@launch
+            when (result) {
+                PairResult.Ok -> Unit
+                PairResult.BadToken -> {
+                    status = PairingStatus.ERROR
+                    error = "TOKEN INVÁLIDO. PEDÍ UN QR NUEVO."
+                    return@launch
+                }
+                PairResult.Unreachable -> {
+                    status = PairingStatus.ERROR
+                    error = "NO SE LLEGA AL SERVIDOR. USA EL MISMO WIFI DEL BAR."
+                    return@launch
+                }
             }
             store.save(parsed.baseUrl, parsed.token)
             pairedUrl = parsed.baseUrl
