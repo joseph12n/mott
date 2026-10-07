@@ -7,17 +7,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -26,7 +22,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.mott.app.domain.Product
-import dev.mott.app.money.Money
+import dev.mott.app.ui.MittCard
+import dev.mott.app.ui.MittMoneyText
+import dev.mott.app.ui.MittPrimaryButton
+import dev.mott.app.ui.MittStockPill
 import dev.mott.app.ui.theme.FigureStyle
 import dev.mott.app.ui.theme.TotalStyle
 
@@ -83,7 +82,6 @@ fun ProductsScreen(
                         onIncrement = { onIncrement(product.id) },
                         onDecrement = { onDecrement(product.id) },
                     )
-                    HorizontalDivider()
                 }
             }
             if (state.error != null) {
@@ -111,41 +109,36 @@ private fun ProductRow(
     onDecrement: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = product.name,
-                style = MaterialTheme.typography.titleLarge,
-                color = if (product.available) {
-                    MaterialTheme.colorScheme.onSurface
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            )
-            Text(
-                text = "$ ${Money.formatCents(product.priceCents)}",
-                style = FigureStyle,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (!product.available) {
+    MittCard(modifier = modifier.fillMaxWidth()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "NO DISPONIBLE",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.error,
+                    text = product.name,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = if (product.available) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                 )
+                MittMoneyText(
+                    cents = product.priceCents,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (!product.available) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    MittStockPill(available = false)
+                }
             }
+            Stepper(
+                qty = qty,
+                enabled = product.available,
+                onIncrement = onIncrement,
+                onDecrement = onDecrement,
+            )
         }
-        Stepper(
-            qty = qty,
-            enabled = product.available,
-            onIncrement = onIncrement,
-            onDecrement = onDecrement,
-        )
     }
 }
 
@@ -165,6 +158,7 @@ private fun Stepper(
         OutlinedButton(
             onClick = onDecrement,
             enabled = enabled && qty > 0,
+            shape = MaterialTheme.shapes.small,
             modifier = Modifier.size(48.dp),
         ) {
             Text(text = "−", fontSize = 24.sp)
@@ -177,6 +171,7 @@ private fun Stepper(
         OutlinedButton(
             onClick = onIncrement,
             enabled = enabled,
+            shape = MaterialTheme.shapes.small,
             modifier = Modifier.size(48.dp),
         ) {
             Text(text = "+", fontSize = 24.sp)
@@ -191,30 +186,18 @@ private fun OrderBottomBar(
     onConfirm: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        tonalElevation = 4.dp,
-    ) {
-        Column(modifier = Modifier.padding(vertical = 12.dp)) {
-            Text(
-                text = "TOTAL",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = "$ ${Money.formatCents(totalCents)}",
-                style = TotalStyle,
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            Button(
-                onClick = onConfirm,
-                enabled = confirmEnabled,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 56.dp),
-            ) {
-                Text("CONFIRMAR")
-            }
-        }
+    MittCard(modifier = modifier.fillMaxWidth()) {
+        Text(
+            text = "TOTAL",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        MittMoneyText(cents = totalCents, style = TotalStyle)
+        Spacer(modifier = Modifier.height(12.dp))
+        MittPrimaryButton(
+            label = "CONFIRMAR",
+            onClick = onConfirm,
+            enabled = confirmEnabled,
+        )
     }
 }

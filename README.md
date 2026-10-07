@@ -132,6 +132,19 @@ Theme roles copy the shared token set 1:1 from mitt [`docs/design-tokens.md`](..
 Token hex values in `Theme.kt` carry the token-name comments — change the token doc
 first, then mirror here, so PC and phone stay visually consistent.
 
+### Visual language (web master → mobile)
+
+The phone screens speak the same visual language as the mitt web hub: the Figma
+master (`mottandmittdesing`, read-only reference) owns the vocabulary and `ui/MittUi.kt`
+is its mobile translation — `.card` becomes `MittCard` (tonal surface, 1px line border,
+20dp radius, zero elevation), `.pill` becomes `MittStatusPill`/`MittStockPill`
+(text + dot, never color-only), `.btn` becomes `MittPrimaryButton`/`MittDangerButton`
+(≥48dp touch targets), `.num` tabular figures become `MittMoneyText` over the shared
+`Money.formatCents`, and the Panel KPI grid collapses into `MittKpiRow` (hero total
+with count-up plus open-table and availability counts, all computed live from the
+already-loaded `OrderUiState`). Colors stay token-driven with the hub brand on top,
+so the translation is shapes and rhythm, never a second palette.
+
 ## Brand
 
 Shop name and colors come from the hub, not from the app: public

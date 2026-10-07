@@ -1,8 +1,10 @@
 package dev.mott.app.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -11,6 +13,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.mott.app.data.Brand
 import dev.mott.app.data.parseHex6
@@ -151,12 +154,29 @@ fun MottTheme(
 ) {
     MaterialTheme(
         colorScheme = if (darkTheme) brandDarkScheme(brand) else brandLightScheme(brand),
+        shapes = MittShapes,
         content = content
     )
 }
 
+// Shape language translated from the Figma web master
+// (mottandmittdesing/src/index.css, values read as px at 16px root):
+// .card border-radius 1.25rem = 20dp -> large (table, product, pairing
+// cards). Cards separate with a 1px line border, never with shadow, so
+// MittCard pairs this shape with BorderStroke + 0dp elevation.
+// .btn / .field border-radius 0.75rem = 12dp -> small (all CTA buttons,
+// text fields via the Material3 default mapping).
+// .pill rounded-full -> CircleShape at the call site (MittStatusPill /
+// MittStockPill), not a theme slot, mirroring the web full-round pill.
+val MittShapes = Shapes(
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(16.dp),
+    large = RoundedCornerShape(20.dp),
+)
+
 // Totals and quantities use monospace figures at displayLarge size so
-// digits align and stay legible under night-bar light. Token hexes above
+// digits align and stay legible under night-bar light. This is the mobile
+// translation of the web .num class (tabular-nums figures). Token hexes above
 // are the shared source of truth and stay untouched.
 val TotalStyle = TextStyle(
     fontFamily = FontFamily.Monospace,

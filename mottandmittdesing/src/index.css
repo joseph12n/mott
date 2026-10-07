@@ -1,0 +1,69 @@
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
+@import 'tailwindcss';
+
+@theme {
+  --font-display: 'Bricolage Grotesque', sans-serif;
+  --font-sans: 'Figtree', sans-serif;
+  --font-mono: 'DM Mono', monospace;
+  --color-brand: var(--brand-base, #0e7a5a);
+  --color-sun: var(--sun-base, #f2a33a);
+  --color-on-brand: #ffffff;
+  --color-paper: color-mix(in srgb, var(--brand-base, #0e7a5a) 5%, #f7f6f1);
+  --color-surface: #ffffff;
+  --color-sunk: color-mix(in srgb, var(--brand-base, #0e7a5a) 6%, #efede6);
+  --color-line: color-mix(in srgb, var(--brand-base, #0e7a5a) 8%, #e6e3da);
+  --color-ink: #16201b;
+  --color-mute: #667069;
+  --color-brand-soft: color-mix(in srgb, var(--color-brand) 12%, var(--color-surface));
+  --color-sunink: color-mix(in srgb, var(--color-sun) 40%, #2e1c00);
+  --color-berry: #d6455d;
+}
+
+html.dark {
+  color-scheme: dark;
+  --color-brand: color-mix(in srgb, var(--brand-base, #0e7a5a) 60%, white);
+  --color-on-brand: #0a0e0c;
+  --color-paper: color-mix(in srgb, var(--brand-base, #0e7a5a) 9%, #0e1210);
+  --color-surface: color-mix(in srgb, var(--brand-base, #0e7a5a) 8%, #171c19);
+  --color-sunk: color-mix(in srgb, var(--brand-base, #0e7a5a) 10%, #212724);
+  --color-line: color-mix(in srgb, var(--brand-base, #0e7a5a) 14%, #2a302d);
+  --color-ink: #eef2ef;
+  --color-mute: #98a39c;
+  --color-sunink: var(--color-sun);
+  --color-berry: #ff7088;
+}
+
+html, body, #root { height: 100%; }
+body {
+  transition: background .25s, color .25s;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+::selection { background: var(--color-brand); color: var(--color-on-brand); }
+* { scrollbar-width: none; }
+*::-webkit-scrollbar { display: none; }
+.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.field {
+  height: 2.5rem; border-radius: 0.75rem; background: var(--color-sunk);
+  padding: 0 0.875rem; font-size: 0.875rem; border: 1px solid transparent; outline: none;
+  transition: border-color .15s, background .15s;
+}
+.field:focus { border-color: var(--color-brand); background: var(--color-surface); }
+.btn {
+  height: 2.5rem; padding: 0 1rem; border-radius: 0.75rem; font-size: 0.875rem; font-weight: 600;
+  display: inline-flex; align-items: center; gap: .5rem; justify-content: center; cursor: pointer;
+  transition: transform .12s, background .15s, opacity .15s; white-space: nowrap;
+}
+.btn:active { transform: scale(.97); }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn-primary { background: var(--color-brand); color: var(--color-on-brand); }
+.btn-primary:hover:not(:disabled) { filter: brightness(1.1); }
+.btn-ghost { background: var(--color-surface); border: 1px solid var(--color-line); }
+.btn-ghost:hover:not(:disabled) { background: var(--color-sunk); }
+.btn-danger { background: color-mix(in srgb, var(--color-berry) 14%, var(--color-surface)); color: var(--color-berry); }
+.btn-danger:hover:not(:disabled) { background: var(--color-berry); color: #fff; }
+.card { background: var(--color-surface); border: 1px solid var(--color-line); border-radius: 1.25rem; }
+@keyframes pulse-ring { 0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--color-brand) 50%,transparent)} 100%{box-shadow:0 0 0 8px transparent} }
+.live { animation: pulse-ring 1.8s infinite; }

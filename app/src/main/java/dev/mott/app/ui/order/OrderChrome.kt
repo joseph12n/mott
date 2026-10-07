@@ -13,58 +13,23 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import dev.mott.app.ui.MittCard
+import dev.mott.app.ui.MittSectionTitle
 
 // Shared Operate-mode chrome: scanable headers, status that is never
 // color-only, and error/empty/offline states for every screen.
-
-// Status dot always ships next to a text label, never alone.
-@Composable
-fun StatusDot(occupied: Boolean, modifier: Modifier = Modifier) {
-    val color = if (occupied) {
-        MaterialTheme.colorScheme.error
-    } else {
-        MaterialTheme.colorScheme.tertiary
-    }
-    Canvas(modifier = modifier.size(14.dp)) {
-        drawCircle(color = color)
-    }
-}
-
-@Composable
-fun OccupancyLabel(occupied: Boolean, modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier,
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        StatusDot(occupied = occupied)
-        Text(
-            text = if (occupied) "OCUPADA" else "LIBRE",
-            style = MaterialTheme.typography.labelLarge,
-            color = if (occupied) {
-                MaterialTheme.colorScheme.error
-            } else {
-                MaterialTheme.colorScheme.tertiary
-            },
-        )
-    }
-}
+// Table and stock status pills live in MittUi (MittStatusPill /
+// MittStockPill); this file keeps the screen chrome on top of them.
 
 @Composable
 fun OfflineBanner(modifier: Modifier = Modifier) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        shape = MaterialTheme.shapes.medium,
-    ) {
+    MittCard(modifier = modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -98,10 +63,7 @@ fun OrderScreenHeader(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Text(
-            text = title,
-            style = MaterialTheme.typography.headlineMedium,
-        )
+        MittSectionTitle(title = title)
         if (isOffline) {
             Spacer(modifier = Modifier.height(12.dp))
             OfflineBanner()

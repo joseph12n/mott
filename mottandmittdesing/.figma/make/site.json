@@ -1,0 +1,10 @@
+{
+  "description": "This web application provides a comprehensive dashboard for restaurants, displaying clear metrics on orders and table purchases, while enabling mobile connectivity via QR codes.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
