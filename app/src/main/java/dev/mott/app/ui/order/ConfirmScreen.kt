@@ -34,6 +34,7 @@ fun ConfirmScreen(
     onNewOrder: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    shopName: String? = null,
 ) {
     Column(
         modifier = modifier
@@ -57,7 +58,7 @@ fun ConfirmScreen(
         }
         val tableLabel = state.selectedTable?.label
         val productsById = state.products.associateBy { it.id }
-        OrderScreenHeader(title = "Confirmar pedido", isOffline = state.isOffline)
+        OrderScreenHeader(title = "Confirmar pedido", isOffline = state.isOffline, shopName = shopName)
         Spacer(modifier = Modifier.height(8.dp))
         if (tableLabel == null || state.lines.isEmpty()) {
             val message = if (tableLabel == null) {

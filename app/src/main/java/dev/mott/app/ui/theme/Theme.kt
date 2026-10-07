@@ -1,15 +1,19 @@
 package dev.mott.app.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import dev.mott.app.data.Brand
+import dev.mott.app.data.parseHex6
 
 // Color roles copied 1:1 from the shared token set (mitt docs/design-tokens.md).
 // Dark column is the default theme; light is the daylight-admin variant.
@@ -86,13 +90,67 @@ private val MottLightColors = lightColorScheme(
     onError = OnAccentLight
 )
 
+// Picks readable content for an arbitrary hub color: light text on dark
+// fills, dark text on light fills. Keeps any hub palette legible without
+// per-hub tuning.
+private fun contentOn(background: Color, onDarkBg: Color, onLightBg: Color): Color =
+    if (background.luminance() > 0.5f) onLightBg else onDarkBg
+
+// Dark scheme follows the hub brand 1:1 with the mitt web hub: background
+// paints the backdrop, brand primary (a surface tone hub-side) paints
+// cards/tiles, brand accent paints actions. Invalid hexes fall back to the
+// token defaults per role, so bad hub data never breaks paint.
+private fun brandDarkScheme(brand: Brand?): ColorScheme {
+    val primary = brand?.accentHex?.let(::parseHex6) ?: AccentDark
+    val background = brand?.backgroundHex?.let(::parseHex6) ?: BgDark
+    val surface = brand?.primaryHex?.let(::parseHex6) ?: SurfaceDark
+    return darkColorScheme(
+        primary = primary,
+        onPrimary = contentOn(primary, onDarkBg = OnAccentDark, onLightBg = OnAccentLight),
+        secondary = TextMutedDark,
+        onSecondary = BgDark,
+        tertiary = SuccessDark,
+        background = background,
+        onBackground = contentOn(background, onDarkBg = TextDark, onLightBg = TextLight),
+        surface = surface,
+        onSurface = contentOn(surface, onDarkBg = TextDark, onLightBg = TextLight),
+        surfaceVariant = SurfaceRaisedDark,
+        onSurfaceVariant = TextMutedDark,
+        error = DangerDark,
+        onError = OnAccentDark
+    )
+}
+
+// Light scheme is the daylight-admin variant: hub accent still drives
+// actions for brand parity, but surfaces stay light tokens so daylight
+// readability never depends on a dark-first hub palette.
+private fun brandLightScheme(brand: Brand?): ColorScheme {
+    val primary = brand?.accentHex?.let(::parseHex6) ?: AccentLight
+    return lightColorScheme(
+        primary = primary,
+        onPrimary = contentOn(primary, onDarkBg = OnAccentDark, onLightBg = OnAccentLight),
+        secondary = TextMutedLight,
+        onSecondary = BgLight,
+        tertiary = SuccessLight,
+        background = BgLight,
+        onBackground = TextLight,
+        surface = SurfaceLight,
+        onSurface = TextLight,
+        surfaceVariant = SurfaceRaisedLight,
+        onSurfaceVariant = TextMutedLight,
+        error = DangerLight,
+        onError = OnAccentLight
+    )
+}
+
 @Composable
 fun MottTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
+    brand: Brand? = null,
     content: @Composable () -> Unit
 ) {
     MaterialTheme(
-        colorScheme = if (darkTheme) MottDarkColors else MottLightColors,
+        colorScheme = if (darkTheme) brandDarkScheme(brand) else brandLightScheme(brand),
         content = content
     )
 }

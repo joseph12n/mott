@@ -5,13 +5,19 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import dev.mott.app.data.BrandStore
+import dev.mott.app.data.refreshBrandIfOnline
 import dev.mott.app.ui.AppContainer
 import dev.mott.app.ui.order.ConfirmScreen
 import dev.mott.app.ui.order.OrderViewModel
@@ -19,6 +25,7 @@ import dev.mott.app.ui.order.ProductsScreen
 import dev.mott.app.ui.order.TablesScreen
 import dev.mott.app.ui.pair.PairingScreen
 import dev.mott.app.ui.theme.MottTheme
+import kotlinx.coroutines.launch
 
 private const val PairRoute = "pair"
 private const val TablesRoute = "tables"
@@ -29,12 +36,24 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            // Night-bar default: dark theme is forced, never follows system.
-            MottTheme(darkTheme = true) {
+            // System theme by owner decision: no in-app toggle, the device
+            // picks dark/light and the hub brand paints both schemes.
+            val appContext = applicationContext
+            // Manual DI: the container owns Room + pairing + queue.
+            // applicationContext avoids leaking the activity.
+            val container = remember { AppContainer(appContext) }
+            val brandStore = remember { BrandStore(appContext) }
+            var brand by remember { mutableStateOf(brandStore.get()) }
+            val scope = rememberCoroutineScope()
+            // Brand refresh on start when online; offline keeps the cached
+            // brand (or token defaults) silently.
+            LaunchedEffect(Unit) {
+                if (refreshBrandIfOnline(appContext, container.pairingStore, brandStore)) {
+                    brand = brandStore.get()
+                }
+            }
+            MottTheme(brand = brand) {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    // Manual DI: the container owns Room + pairing + queue.
-                    // applicationContext avoids leaking the activity.
-                    val container = remember { AppContainer(applicationContext) }
                     val orderViewModel = remember { OrderViewModel(sync = container.orderSync()) }
                     val state by orderViewModel.state.collectAsState()
                     val navController = rememberNavController()
@@ -49,6 +68,14 @@ class MainActivity : ComponentActivity() {
                             PairingScreen(
                                 store = container.pairingStore,
                                 onPaired = {
+                                    // Refresh the hub brand after pairing
+                                    // without blocking navigation; offline
+                                    // keeps the cached brand silently.
+                                    scope.launch {
+                                        if (refreshBrandIfOnline(appContext, container.pairingStore, brandStore)) {
+                                            brand = brandStore.get()
+                                        }
+                                    }
                                     navController.navigate(TablesRoute) {
                                         popUpTo(PairRoute) { inclusive = true }
                                     }
@@ -60,6 +87,7 @@ class MainActivity : ComponentActivity() {
                                 state = state,
                                 onSelectTable = orderViewModel::selectTable,
                                 onNext = { navController.navigate(ProductsRoute) },
+                                shopName = brand?.shopName,
                             )
                         }
                         composable(ProductsRoute) {
@@ -69,6 +97,7 @@ class MainActivity : ComponentActivity() {
                                 onDecrement = orderViewModel::decrement,
                                 onConfirm = { navController.navigate(ConfirmRoute) },
                                 onBack = { navController.popBackStack() },
+                                shopName = brand?.shopName,
                             )
                         }
                         composable(ConfirmRoute) {
@@ -80,6 +109,7 @@ class MainActivity : ComponentActivity() {
                                     navController.popBackStack(TablesRoute, inclusive = false)
                                 },
                                 onBack = { navController.popBackStack() },
+                                shopName = brand?.shopName,
                             )
                         }
                     }

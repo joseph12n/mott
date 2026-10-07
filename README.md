@@ -15,6 +15,7 @@ Offline-first against the [`mitt`](../mitt) PC hub — keep taking orders with n
 - [Offline and sync](#offline-and-sync)
 - [Project layout](#project-layout)
 - [Design tokens](#design-tokens)
+- [Brand](#brand)
 - [Compatibility](#compatibility)
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
@@ -100,8 +101,8 @@ status never color-only, every screen has empty / error / offline states.
 | `app/`                         | `:app` module (`dev.mott.app`), Compose + Material3|
 | `…/domain/`                    | Offline rules: product, order line, tab, expense    |
 | `…/data/local/`                | Room cache + outbox queue (`PendingOp`)            |
-| `…/data/remote/`               | Retrofit client + DTOs matching the mitt wire      |
-| `…/data/`                      | `PairingStore`, `PairingCode`, `SyncManager`        |
+| `…/data/remote/`               | Retrofit client + DTOs matching the mitt wire (`BrandingResponse` for hub brand)|
+| `…/data/`                      | `PairingStore`, `PairingCode`, `SyncManager`, `BrandStore`, `BrandRefresh`|
 | `…/ui/order/`                  | 3-tap flow: ViewModel + tables/products/confirm     |
 | `…/ui/pair/`                   | Pairing screen (scan + paste)                       |
 | `…/ui/theme/`                  | `MottTheme`, token-driven colors, total text styles |
@@ -114,6 +115,17 @@ Theme roles copy the shared token set 1:1 from mitt [`docs/design-tokens.md`](..
 (reference only): dark-first roles, type/spacing scales, 48dp touch minimums.
 Token hex values in `Theme.kt` carry the token-name comments — change the token doc
 first, then mirror here, so PC and phone stay visually consistent.
+
+## Brand
+
+Shop name and colors come from the hub, not from the app: public
+`GET /api/branding` (`shop_name`, `primary`, `accent`, `background`) is fetched
+on pairing and on app start when online, then cached in `brand` prefs. Offline
+or failed refreshes keep the cached values silently, falling back to the mitt
+dark tokens. The theme follows the device (no in-app toggle); the hub accent
+drives actions in both modes and hub background/primary drive dark-mode
+surfaces, with readable on-colors picked by luminance. The hub logo stays
+web-only — the app ships no image-loading dependencies by design.
 
 ## Compatibility
 

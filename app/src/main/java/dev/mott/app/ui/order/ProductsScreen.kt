@@ -41,6 +41,7 @@ fun ProductsScreen(
     onConfirm: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    shopName: String? = null,
 ) {
     Column(
         modifier = modifier
@@ -54,6 +55,7 @@ fun ProductsScreen(
         OrderScreenHeader(
             title = if (tableLabel != null) "Pedido · $tableLabel" else "Pedido",
             isOffline = state.isOffline,
+            shopName = shopName,
         )
         Spacer(modifier = Modifier.height(8.dp))
         if (tableLabel == null) {

@@ -28,13 +28,14 @@ fun TablesScreen(
     onSelectTable: (String) -> Unit,
     onNext: () -> Unit,
     modifier: Modifier = Modifier,
+    shopName: String? = null,
 ) {
     Column(
         modifier = modifier
             .fillMaxSize()
             .padding(16.dp),
     ) {
-        OrderScreenHeader(title = "Elegir mesa", isOffline = state.isOffline)
+        OrderScreenHeader(title = "Elegir mesa", isOffline = state.isOffline, shopName = shopName)
         Spacer(modifier = Modifier.height(16.dp))
         if (state.error != null && state.tables.isEmpty()) {
             OrderErrorState(message = state.error, modifier = Modifier.weight(1f))

@@ -85,9 +85,19 @@ fun OfflineBanner(modifier: Modifier = Modifier) {
 fun OrderScreenHeader(
     title: String,
     isOffline: Boolean,
+    shopName: String? = null,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
+        // Hub brand name from state, never hardcoded: blank stays hidden.
+        val shop = shopName?.trim().orEmpty()
+        if (shop.isNotEmpty()) {
+            Text(
+                text = shop,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         Text(
             text = title,
             style = MaterialTheme.typography.headlineMedium,
