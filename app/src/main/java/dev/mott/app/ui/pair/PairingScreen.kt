@@ -28,8 +28,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import com.journeyapps.barcodescanner.ScanContract
-import com.journeyapps.barcodescanner.ScanOptions
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import dev.mott.app.data.PairingStore
 import dev.mott.app.data.parsePairingCode
 import dev.mott.app.ui.order.OrderScreenHeader
@@ -68,9 +69,10 @@ suspend fun validatePairing(baseUrl: String, token: String): Boolean {
 }
 
 // First-run screen: pair this device with the mitt hub over QR or paste.
-// Scanning uses the zxing IntentIntegrator pattern via ScanContract (no
-// CameraX); pasting accepts the same code text. All failures surface as
-// fixed Spanish strings — raw exceptions never reach the UI.
+// Scanning uses the Play services code scanner (framed viewfinder UI owned
+// by Google, handles dense QR codes); pasting accepts the same code text.
+// All failures surface as fixed Spanish strings — raw exceptions never
+// reach the UI.
 @Composable
 fun PairingScreen(
     store: PairingStore,
@@ -113,24 +115,39 @@ fun PairingScreen(
         }
     }
 
-    // IntentIntegrator pattern: fire the scanner intent, read its contents.
-    val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
-        val contents = result.contents
-        if (contents == null) {
-            status = PairingStatus.IDLE
-        } else {
-            handleCode(contents)
-        }
+    // Play services code scanner: GMS renders its own framed viewfinder UI
+    // and handles dense pairing QRs (long URL + 64-hex token) with auto-zoom.
+    // Built lazily at tap time so JVM unit tests never load GMS classes.
+    fun launchScanner() {
+        showCameraRationale = false
+        status = PairingStatus.SCANNING
+        val options = GmsBarcodeScannerOptions.Builder()
+            .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+            .enableAutoZoom()
+            .build()
+        GmsBarcodeScanning.getClient(context, options)
+            .startScan()
+            .addOnSuccessListener { barcode ->
+                val raw = barcode.rawValue
+                if (raw == null) {
+                    status = PairingStatus.IDLE
+                } else {
+                    handleCode(raw)
+                }
+            }
+            .addOnCanceledListener {
+                status = PairingStatus.IDLE
+            }
+            .addOnFailureListener {
+                status = PairingStatus.ERROR
+                error = "NO SE PUDO LEER EL QR. PROBÁ DE NUEVO O PEGÁ EL CÓDIGO."
+            }
     }
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         if (granted) {
-            showCameraRationale = false
-            status = PairingStatus.SCANNING
-            scanLauncher.launch(
-                ScanOptions().setPrompt("Apuntá al QR del servidor"),
-            )
+            launchScanner()
         } else {
             showCameraRationale = true
         }
@@ -140,11 +157,7 @@ fun PairingScreen(
         val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
             PackageManager.PERMISSION_GRANTED
         if (granted) {
-            showCameraRationale = false
-            status = PairingStatus.SCANNING
-            scanLauncher.launch(
-                ScanOptions().setPrompt("Apuntá al QR del servidor"),
-            )
+            launchScanner()
         } else {
             permissionLauncher.launch(Manifest.permission.CAMERA)
         }

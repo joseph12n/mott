@@ -17,8 +17,8 @@ android {
         applicationId = "dev.mott.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.1.1"
+        versionCode = 3
+        versionName = "0.1.2"
     }
 
     compileOptions {
@@ -50,7 +50,7 @@ dependencies {
     implementation(libs.retrofit.converter.kotlinx)
     implementation(libs.okhttp)
     implementation(libs.navigation.compose)
-    implementation(libs.zxing.embedded)
+    implementation(libs.code.scanner)
     debugImplementation(libs.okhttp.logging)
     kapt(libs.room.compiler)
     testImplementation(libs.junit)

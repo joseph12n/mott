@@ -57,6 +57,8 @@ On first run the app asks to pair. Two ways, same result:
 
 The app validates the code against `GET /api/health` with the token and saves
 the pairing locally (plain prefs for now — encrypted storage is on the roadmap).
+Scanning uses the Play services code scanner (needs Play Services on device;
+manual paste remains the fallback).
 
 QR format (URL-encoded params):
 
