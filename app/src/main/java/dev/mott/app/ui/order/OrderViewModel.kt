@@ -2,6 +2,7 @@ package dev.mott.app.ui.order
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dev.mott.app.data.ApiOrderCatalog
 import dev.mott.app.data.OpTypes
 import dev.mott.app.data.OrderLinePayload
 import dev.mott.app.data.PendingQueue
@@ -86,12 +87,12 @@ interface OrderSync {
 // viewModelScope. Tests drive the suspend commitAndSync directly with a
 // fake OrderSync and an injected scope-free path (no Main dispatcher).
 class OrderViewModel(
-    catalog: OrderCatalog = FakeOrderCatalog(),
+    private val catalog: OrderCatalog = FakeOrderCatalog(),
     isOffline: Boolean = false,
     private val sync: OrderSync? = null,
     private val workScope: CoroutineScope? = null,
 ) : ViewModel() {
-    private val productById: Map<String, Product> =
+    private var productById: Map<String, Product> =
         catalog.listProducts().associateBy { it.id }
 
     private val _state = MutableStateFlow(
@@ -259,6 +260,24 @@ class OrderViewModel(
     // production; tests inject workScope or call commitAndSync directly.
     fun submit() {
         (workScope ?: viewModelScope).launch { commitAndSync() }
+    }
+
+    // Hub catalog pull for the Tables screen entry (LaunchedEffect once).
+    // No-op for the fake (previews/tests); when offline the last-loaded
+    // cached state keeps serving and no request goes out. Order math below
+    // is untouched: lines keep their qty, only prices re-resolve.
+    suspend fun loadCatalog() {
+        val remote = catalog as? ApiOrderCatalog ?: return
+        if (sync?.isOnline() == false) return
+        if (!remote.refresh()) return
+        productById = remote.listProducts().associateBy { it.id }
+        _state.update { current ->
+            current.copy(
+                tables = remote.listTables(),
+                products = remote.listProducts(),
+                runningTotalCents = totalOf(current.lines),
+            )
+        }
     }
 
     private fun totalOf(lines: Map<String, Int>): Long =

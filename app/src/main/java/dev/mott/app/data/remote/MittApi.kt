@@ -21,6 +21,9 @@ interface MittApi {
         @Query("available") available: Boolean? = null,
     ): Response<ProductsResponse>
 
+    @GET("api/tables")
+    suspend fun listTables(): Response<TablesResponse>
+
     @POST("api/products")
     suspend fun createProduct(@Body body: ProductCreateRequest): Response<ProductDto>
 

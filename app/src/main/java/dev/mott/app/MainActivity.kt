@@ -54,7 +54,7 @@ class MainActivity : ComponentActivity() {
             }
             MottTheme(brand = brand) {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    val orderViewModel = remember { OrderViewModel(sync = container.orderSync()) }
+                    val orderViewModel = remember { OrderViewModel(catalog = container.orderCatalog(), sync = container.orderSync()) }
                     val state by orderViewModel.state.collectAsState()
                     val navController = rememberNavController()
                     val startRoute = remember {
@@ -83,6 +83,9 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         composable(TablesRoute) {
+                            // Hub catalog pull on entry when online; offline
+                            // keeps serving the cached snapshot silently.
+                            LaunchedEffect(Unit) { orderViewModel.loadCatalog() }
                             TablesScreen(
                                 state = state,
                                 onSelectTable = orderViewModel::selectTable,

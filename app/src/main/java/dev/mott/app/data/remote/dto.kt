@@ -44,6 +44,20 @@ data class ProductPatchRequest(
     val available: Boolean? = null,
 )
 
+// GET /api/tables -> {"tables": [{id, label, occupied}]} with occupied
+// derived from open tabs at read time, never stored.
+@Serializable
+data class TableDto(
+    val id: String,
+    val label: String,
+    val occupied: Boolean,
+)
+
+@Serializable
+data class TablesResponse(
+    val tables: List<TableDto> = emptyList(),
+)
+
 // One running-bill line with the price snapshotted at order time.
 @Serializable
 data class OrderLineDto(

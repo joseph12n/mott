@@ -13,6 +13,7 @@ Offline-first against the [`mitt`](../mitt) PC hub — keep taking orders with n
 - [Pairing with the hub](#pairing-with-the-hub)
 - [Order flow](#order-flow)
 - [Offline and sync](#offline-and-sync)
+- [Catalog](#catalog)
 - [Project layout](#project-layout)
 - [Design tokens](#design-tokens)
 - [Brand](#brand)
@@ -31,7 +32,10 @@ flowchart LR
 ```
 
 1. **Pair** the phone with the PC hub once (QR or pasted code).
-2. **Pull** the catalog (products, prices, availability).
+2. **Pull** the catalog from the hub: tables with occupancy (`GET /api/tables`)
+   plus all products with prices and availability (`GET /api/products`,
+   unfiltered — unavailable rows stay listed but disabled, same rule as web).
+   The snapshot is cached on-device, so the flow keeps working offline.
 3. **Take orders**: table → products → confirm. Totals compute on-device, instantly.
 4. Every order lands in an **outbox queue**; a FIFO sync drains it to the hub when there is connectivity.
 
@@ -96,6 +100,16 @@ status never color-only, every screen has empty / error / offline states.
 - After 5 failed attempts an op is flagged exhausted instead of retried forever.
 - The UI shows `SINCRONIZADO` or `PENDIENTE (n)` after each submission.
 
+## Catalog
+
+The hub is the single source of truth — no preset tables or products in the
+production path. On Tables entry the app refreshes `ApiOrderCatalog` when
+online (`GET /api/tables` + `GET /api/products`) and serves the last snapshot
+otherwise. The snapshot lives in the `catalog` prefs (`CatalogCache`: tables +
+products JSON + timestamp); Room stays the op-queue store, the catalog is a
+small replace-whole snapshot by design. `FakeOrderCatalog` exists for
+previews and JVM tests only.
+
 ## Project layout
 
 | Path                           | Purpose                                            |
@@ -104,7 +118,7 @@ status never color-only, every screen has empty / error / offline states.
 | `…/domain/`                    | Offline rules: product, order line, tab, expense    |
 | `…/data/local/`                | Room cache + outbox queue (`PendingOp`)            |
 | `…/data/remote/`               | Retrofit client + DTOs matching the mitt wire (`BrandingResponse` for hub brand)|
-| `…/data/`                      | `PairingStore`, `PairingCode`, `SyncManager`, `BrandStore`, `BrandRefresh`|
+| `…/data/`                      | `PairingStore`, `PairingCode`, `SyncManager`, `BrandStore`, `BrandRefresh`, `CatalogCache`, `ApiOrderCatalog`|
 | `…/ui/order/`                  | 3-tap flow: ViewModel + tables/products/confirm     |
 | `…/ui/pair/`                   | Pairing screen (scan + paste)                       |
 | `…/ui/theme/`                  | `MottTheme`, token-driven colors, total text styles |
@@ -157,4 +171,4 @@ Open source — adjust it to your bar's needs. Conventions:
 - QR scanning, camera permission flow, and live-hub pairing are unit-tested only —
   no device/emulator pass yet.
 - Pairing secrets use plain prefs (hardening tracked).
-- Today-sales and table seeding depend on upcoming hub endpoints (documented there).
+- Today-sales depends on an upcoming hub endpoint (documented there).
