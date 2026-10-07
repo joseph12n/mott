@@ -48,6 +48,14 @@ interface MittApi {
     @POST("api/tabs/{id}/close")
     suspend fun closeTab(@Path("id") tabId: String): Response<SaleDto>
 
+    @GET("api/sales")
+    suspend fun listSales(
+        @Query("limit") limit: Int? = null,
+    ): Response<SalesResponse>
+
+    @GET("api/sales/today")
+    suspend fun salesToday(): Response<TodayResponse>
+
     @GET("api/expenses")
     suspend fun listExpenses(): Response<ExpensesResponse>
 

@@ -3,7 +3,7 @@
 Native Android app for taking bar orders: pick a table, add products, get the bill automatically.
 Offline-first against the [`mitt`](../mitt) PC hub — keep taking orders with no Wi-Fi, sync later.
 
-> **Status:** foundation complete and build-verified (66 unit tests green, debug APK builds).
+> **Status:** unified sections complete and build-verified (126 unit tests green, debug APK builds).
 > Not field-tested in a real bar yet — see [Limitations](#limitations).
 
 ## Contents
@@ -11,7 +11,7 @@ Offline-first against the [`mitt`](../mitt) PC hub — keep taking orders with n
 - [How it works](#how-it-works)
 - [Quick start](#quick-start)
 - [Pairing with the hub](#pairing-with-the-hub)
-- [Order flow](#order-flow)
+- [Order flow](#sections)
 - [Offline and sync](#offline-and-sync)
 - [Catalog](#catalog)
 - [Project layout](#project-layout)
@@ -36,7 +36,7 @@ flowchart LR
    plus all products with prices and availability (`GET /api/products`,
    unfiltered — unavailable rows stay listed but disabled, same rule as web).
    The snapshot is cached on-device, so the flow keeps working offline.
-3. **Take orders**: table → products → confirm. Totals compute on-device, instantly.
+3. **Take orders** in Mesas: pick a table, add products in its sheet, ANOTAR. Totals compute on-device, instantly.
 4. Every order lands in an **outbox queue**; a FIFO sync drains it to the hub when there is connectivity.
 
 ## Quick start
@@ -79,18 +79,23 @@ http://192.168.1.20:8080|DUMMY-DUMMY-TOKEN-0000
 Rules: scheme `mitt`, host `pair`, `http(s)` URL with explicit port, token of 16+ chars.
 The token above is a DUMMY placeholder — never commit a real one.
 
-## Order flow
+## Sections
 
-Three taps from table to confirmed order:
+Five Figma sections behind a bottom bar (unpaired devices see the QR-first
+pairing screen instead — Conexión doubles as the pairing entry):
 
-| Step | Screen   | What happens                                              |
-|------|----------|-----------------------------------------------------------|
-| 1    | Tables   | Grid of tables with LIBRE / OCUPADA status (text + dot)   |
-| 2    | Products | Rows with price, 48dp steppers, sticky total + CONFIRMAR   |
-| 3    | Confirm  | Summary + table + total; offline banner when disconnected |
+| Tab        | What happens                                                              |
+|------------|---------------------------------------------------------------------------|
+| Panel      | KPI hero (Ventas hoy with count-up, Mesas abiertas, En curso), hand-rolled Canvas bar chart of per-day totals ("Sin ventas todavía" when empty), recent orders |
+| Mesas      | Table grid with Ocupada/Libre pill + open-tab total; tap opens a detail sheet reusing the order/add/close actions (steppers + ANOTAR + CERRAR MESA). Table add/remove is web-only |
+| Catálogo   | View-only price/stock list (Disponible/Sin stock). Product add/edit is web-only; tapping a product jumps to Mesas to add it |
+| Gastos     | Expense list + add form over the outbox (`SINCRONIZADO` / `PENDIENTE`)     |
+| Conexión   | Server status, connect steps, brand surface, DESVINCULAR                   |
 
 Design rules (night-bar first): dark theme default, big tabular numerals for money,
-status never color-only, every screen has empty / error / offline states.
+status never color-only, every section has empty / error / offline states, 48dp+
+touch targets, no hover states, motion only where it feeds back (count-ups snap
+under reduced motion).
 
 ## Offline and sync
 
@@ -110,6 +115,12 @@ products JSON + timestamp); Room stays the op-queue store, the catalog is a
 small replace-whole snapshot by design. `FakeOrderCatalog` exists for
 previews and JVM tests only.
 
+Panel data reads `GET /api/sales?limit=` (newest first, same sale shape as closing a tab)
+and `GET /api/sales/today` (`{date, count, total_cents}`) through `SalesRepo`, which also
+maps `GET /api/tabs/open` onto the domain `Tab` for the Mesas operate view. All three
+getters keep the last good payload in memory and serve it offline or unpaired (explicit
+empty when nothing was ever loaded); HTTP errors throw typed `ApiException`, never silent zeros.
+
 ## Project layout
 
 | Path                           | Purpose                                            |
@@ -119,7 +130,8 @@ previews and JVM tests only.
 | `…/data/local/`                | Room cache + outbox queue (`PendingOp`)            |
 | `…/data/remote/`               | Retrofit client + DTOs matching the mitt wire (`BrandingResponse` for hub brand)|
 | `…/data/`                      | `PairingStore`, `PairingCode`, `SyncManager`, `BrandStore`, `BrandRefresh`, `CatalogCache`, `ApiOrderCatalog`|
-| `…/ui/order/`                  | 3-tap flow: ViewModel + tables/products/confirm     |
+| `…/ui/`                        | Sections (Panel, Mesas, Catálogo, Gastos, Conexión), bottom nav, shared `MittUi` vocabulary |
+| `…/ui/order/`                  | Order state: ViewModel + shared chrome (headers, banners, states) |
 | `…/ui/pair/`                   | Pairing screen (scan + paste)                       |
 | `…/ui/theme/`                  | `MottTheme`, token-driven colors, total text styles |
 | `gradle/libs.versions.toml`    | Version catalog (AGP, Kotlin, Compose, Room…)       |
@@ -184,4 +196,3 @@ Open source — adjust it to your bar's needs. Conventions:
 - QR scanning, camera permission flow, and live-hub pairing are unit-tested only —
   no device/emulator pass yet.
 - Pairing secrets use plain prefs (hardening tracked).
-- Today-sales depends on an upcoming hub endpoint (documented there).

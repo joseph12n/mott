@@ -108,6 +108,22 @@ data class SaleDto(
     @SerialName("closed_at") val closedAt: String,
 )
 
+// GET /api/sales -> {"sales": [...]} newest first. Each sale has the same
+// {id, table_id, items, total_cents, closed_at} shape as closing a tab,
+// so SaleDto is reused here, not duplicated.
+@Serializable
+data class SalesResponse(
+    val sales: List<SaleDto> = emptyList(),
+)
+
+// GET /api/sales/today -> {"date" YYYY-MM-DD, count, total_cents}.
+@Serializable
+data class TodayResponse(
+    val date: String,
+    val count: Int,
+    @SerialName("total_cents") val totalCents: Long,
+)
+
 // Bar expense as stored by mitt.
 @Serializable
 data class ExpenseDto(

@@ -262,6 +262,25 @@ class OrderViewModel(
         (workScope ?: viewModelScope).launch { commitAndSync() }
     }
 
+    // CERRAR MESA pipeline for an occupied table: enqueues the CLOSE_TAB op
+    // against the hub tab id and drains when online. True when nothing is
+    // left pending; offline enqueues and reports false so the UI can show
+    // PENDIENTE instead of pretending the table closed.
+    suspend fun closeTabAndSync(tabId: String, tableId: String): Boolean {
+        val queue = sync ?: return false
+        val tab = TabPayload(id = tabId, tableId = tableId, lines = emptyList(), isClosed = true)
+        queue.enqueue(OpTypes.CLOSE_TAB, PendingQueue.encode(tab))
+        if (!queue.isOnline()) return false
+        queue.drainOnce()
+        return queue.pendingCount() == 0
+    }
+
+    // UI entry for the CERRAR button. Falls back to viewModelScope in
+    // production; tests call closeTabAndSync directly.
+    fun closeTab(tabId: String, tableId: String, onDone: (Boolean) -> Unit = {}) {
+        (workScope ?: viewModelScope).launch { onDone(closeTabAndSync(tabId, tableId)) }
+    }
+
     // Hub catalog pull for the Tables screen entry (LaunchedEffect once).
     // No-op for the fake (previews/tests); when offline the last-loaded
     // cached state keeps serving and no request goes out. Order math below

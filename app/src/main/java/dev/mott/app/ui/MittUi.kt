@@ -164,6 +164,27 @@ fun MittStockPill(available: Boolean, modifier: Modifier = Modifier) {
     )
 }
 
+// Neutral status tag with a dot, never color-only: for chart ranges,
+// server state and other one-word facts that are neither occupancy nor
+// stock. Tone follows the web master: brand/success for live, muted for
+// plain context.
+@Composable
+fun MittLivePill(
+    text: String,
+    live: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    MittPill(
+        text = text,
+        tone = if (live) {
+            MaterialTheme.colorScheme.tertiary
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        modifier = modifier,
+    )
+}
+
 // Tabular money figure: monospace digits via FigureStyle so columns of
 // prices align, exactly like the web .num class.
 @Composable
