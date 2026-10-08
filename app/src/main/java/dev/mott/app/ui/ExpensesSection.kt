@@ -1,6 +1,7 @@
 package dev.mott.app.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,8 +10,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -25,51 +27,88 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import dev.mott.app.data.ApiException
 import dev.mott.app.data.ExpenseItem
 import dev.mott.app.data.ExpensesRepo
 import dev.mott.app.ui.order.OrderEmptyState
 import dev.mott.app.ui.theme.TotalStyle
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
-// Gastos section in Figma card language: total hero, add form, rows.
-// Adds ride the offline outbox (qty is always one unit on mobile) and
-// report SINCRONIZADO / PENDIENTE like ANOTAR. Hub failures surface as a
-// short line; the list fail-softs to cache or empty, never crashes.
+// Gastos section in Figma card language: header-right total, add form,
+// divided rows. Mirrors the mitt PC Gastos reduction: each line totals
+// qty x unit cost, rows have no delete control (the hub exposes GET + POST
+// /api/expenses only), and the form stays concepto+monto with qty
+// defaulting to 1. Adds ride the offline outbox and report SINCRONIZADO /
+// PENDIENTE like ANOTAR. Loads go through the shared SectionLoaders
+// contract with retry; CancellationException is rethrown, never classified
+// (R3-002); the Sin-gastos empty state renders only without failure, never
+// together with the failure card (R3-003).
 @Composable
 fun ExpensesSection(
     repo: ExpensesRepo,
     modifier: Modifier = Modifier,
+    onNavigateConnection: () -> Unit = {},
+    // T3 shell: the ShellHeader owns the title/subtitle, and its
+    // Refrescar bumps refreshSignal to re-trigger the list load.
+    showHeader: Boolean = true,
+    refreshSignal: Int = 0,
 ) {
     var items by remember { mutableStateOf(emptyList<ExpenseItem>()) }
     var concept by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
     var note by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
+    // Named load failure (token_invalido / sin_servidor / error_inesperado)
+    // instead of a silent empty list: the user sees why and can retry.
+    var failure by remember { mutableStateOf<LoadFailureReason?>(null) }
     val scope = rememberCoroutineScope()
     val amountCents = remember(amount) { parseAmountToCents(amount) }
+    val totalCents = expensesTotal(items)
 
     fun refresh() {
-        scope.launch { items = runCatching { repo.list() }.getOrDefault(emptyList()) }
+        scope.launch {
+            // Cancellation-safe loader: only Ready/Failed come back;
+            // cancellation propagates out of the launch untouched.
+            when (val loaded = loadExpensesState(repo::list)) {
+                is LoadState.Ready -> {
+                    items = loaded.data
+                    failure = null
+                }
+                is LoadState.Failed -> failure = loaded.reason
+                LoadState.Loading -> Unit
+            }
+        }
     }
-    LaunchedEffect(Unit) { refresh() }
+    LaunchedEffect(refreshSignal) { refresh() }
 
     Column(
         modifier = modifier
             .fillMaxSize()
             .padding(16.dp),
     ) {
-        MittSectionTitle(title = "Gastos", sub = "Egresos registrados del servicio")
-        Spacer(modifier = Modifier.height(12.dp))
-        MittCard(modifier = Modifier.fillMaxWidth()) {
-            Text(
-                text = "Total gastado",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            MittMoneyText(cents = items.sumOf { it.costCents }, style = TotalStyle)
+        // Total on the right of the header, like the web master: the
+        // shell subtitle reuses the same "Egresos..." copy.
+        if (showHeader) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(modifier = Modifier.weight(1f)) {
+                    MittSectionTitle(title = "Gastos", sub = "Egresos registrados del servicio")
+                }
+                MittMoneyText(cents = totalCents, style = TotalStyle)
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                MittMoneyText(cents = totalCents, style = TotalStyle)
+            }
+            Spacer(modifier = Modifier.height(12.dp))
         }
-        Spacer(modifier = Modifier.height(12.dp))
         MittCard(modifier = Modifier.fillMaxWidth()) {
             Text(text = "Registrar gasto", style = MaterialTheme.typography.titleLarge)
             Spacer(modifier = Modifier.height(8.dp))
@@ -100,12 +139,16 @@ fun ExpensesSection(
                     if (text.isEmpty()) return@MittPrimaryButton
                     saving = true
                     scope.launch {
-                        note = try {
-                            repo.add(text, qty = 1.0, costCents = cents)
-                        } catch (_: IllegalArgumentException) {
-                            "REVISAR CONCEPTO Y MONTO"
-                        } catch (_: ApiException) {
-                            "ERROR DEL SERVIDOR, SE REINTENTA"
+                        try {
+                            // Mobile posts a single unit per gasto (qty =
+                            // 1); the web asks for qty explicitly.
+                            note = repo.add(text, qty = 1.0, costCents = cents)
+                        } catch (e: CancellationException) {
+                            // R3-002: cancellation keeps propagating, it is
+                            // never classified into a note.
+                            throw e
+                        } catch (e: Exception) {
+                            note = mapExpenseSaveFailure(e)
                         } finally {
                             saving = false
                         }
@@ -128,34 +171,51 @@ fun ExpensesSection(
             }
         }
         Spacer(modifier = Modifier.height(12.dp))
-        if (items.isEmpty()) {
+        failure?.let { reason ->
+            MittLoadErrorCard(
+                reason = reason,
+                onRetry = ::refresh,
+                onRePair = onNavigateConnection,
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+        // R3-003: the empty state renders only without failure, so it
+        // never shows together with the failure card above.
+        if (shouldShowExpensesEmpty(items, failure)) {
             OrderEmptyState(
                 title = "Sin gastos",
                 hint = "Todavía no hay egresos registrados en este servicio.",
                 modifier = Modifier.weight(1f),
             )
-        } else {
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+        } else if (items.isNotEmpty()) {
+            MittCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
             ) {
-                items(items, key = { it.id }) { expense ->
-                    MittCard(modifier = Modifier.fillMaxWidth()) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                LazyColumn {
+                    itemsIndexed(items, key = { _, expense -> expense.id }) { index, expense ->
+                        if (index > 0) {
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = expense.description,
                                     style = MaterialTheme.typography.titleLarge,
                                 )
-                                if (expense.date.isNotBlank()) {
-                                    Text(
-                                        text = expense.date,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
+                                Text(
+                                    text = expenseSubline(expense),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
-                            MittMoneyText(cents = expense.costCents)
+                            MittMoneyText(cents = expenseLineTotal(expense))
                         }
                     }
                 }

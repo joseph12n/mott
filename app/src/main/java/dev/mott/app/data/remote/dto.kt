@@ -58,6 +58,12 @@ data class TablesResponse(
     val tables: List<TableDto> = emptyList(),
 )
 
+// POST /api/tables body: label trimmed server-side, 1..40 chars.
+@Serializable
+data class TableCreateRequest(
+    val label: String,
+)
+
 // One running-bill line with the price snapshotted at order time.
 @Serializable
 data class OrderLineDto(
@@ -146,6 +152,40 @@ data class ExpenseCreateRequest(
     val description: String,
     val qty: Double,
     @SerialName("cost_cents") val costCents: Long,
+)
+
+// Supplier as stored by mitt: a short provider record (name, phone,
+// note) with no per-supplier catalog or purchase ledger. GET
+// /api/suppliers returns them name-ordered.
+@Serializable
+data class SupplierDto(
+    val id: String,
+    val name: String,
+    val phone: String = "",
+    val note: String = "",
+)
+
+@Serializable
+data class SuppliersResponse(
+    val suppliers: List<SupplierDto> = emptyList(),
+)
+
+// POST /api/suppliers body: name trimmed server-side (1..80 chars),
+// phone/note optional (<=40/<=200 chars).
+@Serializable
+data class SupplierCreateRequest(
+    val name: String,
+    val phone: String = "",
+    val note: String = "",
+)
+
+// PATCH /api/suppliers/{id} body: nil fields keep their stored value,
+// so partial updates send only the changed fields.
+@Serializable
+data class SupplierPatchRequest(
+    val name: String? = null,
+    val phone: String? = null,
+    val note: String? = null,
 )
 
 // Failure envelope shared by every mitt endpoint:

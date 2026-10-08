@@ -121,4 +121,95 @@ class WiringTest {
         assertNotNull(payload)
         assertEquals(null, vm.state.value.lastSync)
     }
+
+    @Test
+    fun `drain explosion reports PENDIENTE instead of throwing`() = runBlocking {
+        val sync = ThrowingDrainSync()
+        val vm = orderWithLines(sync)
+
+        val payload = vm.commitAndSync()
+
+        assertNotNull(payload)
+        assertEquals(1, sync.enqueueCalls)
+        assertTrue(vm.state.value.lastSync!!.startsWith("PENDIENTE"))
+    }
+
+    @Test
+    fun `closeTab with exploding drain returns false without throwing`() = runBlocking {
+        val vm = OrderViewModel(FakeOrderCatalog(), sync = ThrowingDrainSync())
+
+        assertEquals(false, vm.closeTabAndSync("tab1", "t1"))
+    }
+
+    @Test
+    fun `enqueue explosion reports ERROR instead of fake PENDIENTE`() = runBlocking {
+        val vm = orderWithLines(ThrowingEnqueueSync())
+
+        val payload = vm.commitAndSync()
+
+        assertNotNull(payload)
+        assertEquals("ERROR: NO GUARDADO", vm.state.value.lastSync)
+    }
+
+    @Test
+    fun `closeTab with exploding enqueue returns false without throwing`() = runBlocking {
+        val vm = OrderViewModel(FakeOrderCatalog(), sync = ThrowingEnqueueSync())
+
+        assertEquals(false, vm.closeTabAndSync("tab1", "t1"))
+    }
+
+    @Test
+    fun `count explosion after successful enqueue reports bare PENDIENTE`() = runBlocking {
+        val vm = orderWithLines(ThrowingCountSync())
+
+        val payload = vm.commitAndSync()
+
+        assertNotNull(payload)
+        assertEquals("PENDIENTE", vm.state.value.lastSync)
+    }
+}
+
+// Worst-case sync seam: the enqueue itself blows up (disk/encode failure).
+// The op never reaches the queue, so the ViewModel must report ERROR (ANOTAR)
+// or false (CERRAR) instead of promising a sync that will never happen.
+class ThrowingEnqueueSync : OrderSync {
+    override suspend fun enqueue(opType: String, payloadJson: String) {
+        throw RuntimeException("disk exploded")
+    }
+
+    override fun isOnline(): Boolean = true
+
+    override suspend fun drainOnce(): SyncReport = SyncReport(synced = 0)
+
+    override suspend fun pendingCount(): Int = 0
+}
+
+// Worst-case sync seam: enqueue succeeds but the pending count blows up.
+// The op IS queued, so bare PENDIENTE (no fabricated number) is honest.
+class ThrowingCountSync : OrderSync {
+    override suspend fun enqueue(opType: String, payloadJson: String) {
+    }
+
+    override fun isOnline(): Boolean = true
+
+    override suspend fun drainOnce(): SyncReport = SyncReport(synced = 1)
+
+    override suspend fun pendingCount(): Int = throw RuntimeException("count exploded")
+}
+
+// Worst-case sync seam: the drain pass blows up with a non-IO exception
+// (e.g. SerializationException from a captive-portal body). The ViewModel
+// must never let it escape into viewModelScope.
+class ThrowingDrainSync : OrderSync {
+    var enqueueCalls = 0
+
+    override suspend fun enqueue(opType: String, payloadJson: String) {
+        enqueueCalls++
+    }
+
+    override fun isOnline(): Boolean = true
+
+    override suspend fun drainOnce(): SyncReport = throw RuntimeException("serialization exploded")
+
+    override suspend fun pendingCount(): Int = enqueueCalls
 }

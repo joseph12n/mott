@@ -1,8 +1,12 @@
 package dev.mott.app.ui
 
 import android.provider.Settings
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -32,12 +36,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import dev.mott.app.money.Money
 import dev.mott.app.ui.order.OrderUiState
 import dev.mott.app.ui.theme.FigureStyle
+import dev.mott.app.ui.theme.MittButtonHeight
 import kotlin.math.roundToLong
 
 // Shared visual vocabulary, translated from the Figma web master
@@ -102,6 +108,34 @@ fun MittSectionTitle(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+}
+
+// Theme-level "live" primitive for the CONECTADO pill: the web .live
+// class (index.css:68-69) pulses a brand ring 0->8px every 1.8s. This
+// only animates the shadow ring; T3 decides which pill uses it.
+@Composable
+fun Modifier.livePulse(
+    color: Color = MaterialTheme.colorScheme.tertiary,
+    enabled: Boolean = true,
+): Modifier {
+    if (!enabled || rememberReducedMotion()) return this
+    val transition = rememberInfiniteTransition(label = "live-pulse")
+    val ring by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 8f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1800),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "pulse-ring",
+    )
+    return this.graphicsLayer {
+        shadowElevation = ring
+        shape = CircleShape
+        clip = false
+        ambientShadowColor = color
+        spotShadowColor = color
     }
 }
 
@@ -245,8 +279,8 @@ fun MittClickableCard(
     )
 }
 
-// Figma .btn: 12dp radius, press scale handled by Material3 ripple;
-// every CTA keeps at least 48dp touch height.
+// Figma .btn: 12dp radius, fixed 40dp height (MittButtonHeight); press
+// scale handled by Material3 ripple.
 @Composable
 fun MittPrimaryButton(
     label: String,
@@ -260,7 +294,7 @@ fun MittPrimaryButton(
         shape = MaterialTheme.shapes.small,
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = 56.dp),
+            .heightIn(min = MittButtonHeight),
     ) {
         Text(label)
     }
@@ -283,7 +317,7 @@ fun MittDangerButton(
         ),
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = 56.dp),
+            .heightIn(min = MittButtonHeight),
     ) {
         Text(label)
     }
@@ -302,9 +336,40 @@ fun MittSecondaryButton(
         shape = MaterialTheme.shapes.small,
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = 56.dp),
+            .heightIn(min = MittButtonHeight),
     ) {
         Text(label)
+    }
+}
+
+// Named load-failure card in Figma card language: reason title, guidance
+// line, RETRY always, plus a re-pair shortcut when the hub rejected the
+// token (server restart rotates it). Shared by Panel, Mesas and Gastos.
+@Composable
+fun MittLoadErrorCard(
+    reason: LoadFailureReason,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+    onRePair: (() -> Unit)? = null,
+) {
+    MittCard(modifier = modifier.fillMaxWidth()) {
+        Text(
+            text = reason.title(),
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.error,
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = reason.message(),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        MittPrimaryButton(label = "REINTENTAR", onClick = onRetry)
+        if (reason.showRePair() && onRePair != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+            MittSecondaryButton(label = "IR A CONEXIÓN", onClick = onRePair)
+        }
     }
 }
 

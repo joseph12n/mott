@@ -168,5 +168,8 @@ class SalesTest {
         // Realistic GET /api/tabs/open body (mitt wire, DUMMY content).
         const val MITT_WIRE_OPEN_TABS_JSON =
             """{"tabs":[{"id":"tab9","table_id":"t9","status":"open","opened_at":"2026-10-07T20:00:00Z","items":[{"product_id":"p1","name":"Fernet","unit_price_cents":1250,"qty":2,"line_total_cents":2500}],"total_cents":2500}]}"""
+        // Same tab as a bare POST body (open-tab 200-existing and add-item).
+        const val MITT_WIRE_OPEN_TABS_TAB_JSON =
+            """{"id":"tab9","table_id":"t9","status":"open","opened_at":"2026-10-07T20:00:00Z","items":[{"product_id":"p1","name":"Fernet","unit_price_cents":1250,"qty":2,"line_total_cents":2500}],"total_cents":2500}"""
     }
 }

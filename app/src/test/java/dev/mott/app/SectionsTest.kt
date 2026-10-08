@@ -120,9 +120,9 @@ class SectionsTest {
     }
 
     @Test
-    fun `five spanish-labeled sections exist`() {
+    fun `seven spanish-labeled sections exist in master order`() {
         assertEquals(
-            listOf("Panel", "Mesas", "Catálogo", "Gastos", "Conexión"),
+            listOf("Panel", "Mesas", "Catálogo", "Proveedores", "Gastos", "Conexión", "Personalizar"),
             AppSection.entries.map { it.label },
         )
     }

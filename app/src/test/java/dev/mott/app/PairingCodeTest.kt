@@ -4,8 +4,10 @@ import dev.mott.app.data.parsePairingCode
 import dev.mott.app.ui.pair.PairResult
 import dev.mott.app.ui.pair.validatePairing
 import kotlinx.coroutines.runBlocking
+import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
@@ -164,6 +166,46 @@ class PairingCodeTest {
                 PairResult.BadToken,
                 validatePairing(server.url("/").toString(), "abcdefghijklmnop"),
             )
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `stale token passing public health is rejected by authed products`() = runBlocking {
+        val server = MockWebServer()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse =
+                when (request.path) {
+                    "/api/health" -> MockResponse().setResponseCode(200)
+                    "/api/products" -> MockResponse().setResponseCode(401)
+                    else -> MockResponse().setResponseCode(404)
+                }
+        }
+        server.start()
+        try {
+            assertEquals(
+                PairResult.BadToken,
+                validatePairing(server.url("/").toString(), "abcdefghijklmnop"),
+            )
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `valid token is accepted through the authed products endpoint`() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"products":[]}"""))
+        server.start()
+        try {
+            assertEquals(
+                PairResult.Ok,
+                validatePairing(server.url("/").toString(), "abcdefghijklmnop"),
+            )
+            val request = server.takeRequest()
+            assertEquals("/api/products", request.path)
+            assertEquals("Bearer abcdefghijklmnop", request.getHeader("Authorization"))
         } finally {
             server.shutdown()
         }

@@ -4,16 +4,47 @@ import dev.mott.app.data.Sale
 import dev.mott.app.data.TodayResult
 import dev.mott.app.domain.Tab
 
-// Bottom-nav sections, mirroring the Figma web master (Panel, Mesas,
-// Catálogo, Gastos, Conexión). English identifiers; labels stay Spanish
-// for the user-visible NavigationBar.
+// Bottom-nav sections, mirroring the Figma web master nav order (App.tsx):
+// Panel, Mesas, Catálogo, Proveedores, Gastos, Conexión, Personalizar.
+// English identifiers; labels stay Spanish for the user-visible nav.
 enum class AppSection(val route: String, val label: String) {
     PANEL("panel", "Panel"),
     MESAS("mesas", "Mesas"),
     CATALOGO("catalogo", "Catálogo"),
+    PROVEEDORES("proveedores", "Proveedores"),
     GASTOS("gastos", "Gastos"),
     CONEXION("conexion", "Conexión"),
+    PERSONALIZAR("personalizar", "Personalizar"),
 }
+
+// Shell header subtitle per section, in the app's existing Spanish tone.
+// Gastos/Conexión reuse the copy their bodies already rendered so the
+// shell header dedup keeps the same words.
+fun AppSection.subtitle(): String = when (this) {
+    AppSection.PANEL -> "Ventas, mesas y órdenes del día"
+    AppSection.MESAS -> "Cuentas abiertas por mesa"
+    AppSection.CATALOGO -> "Lista de precios y stock"
+    AppSection.PROVEEDORES -> "Compras y contactos del bar"
+    AppSection.GASTOS -> "Egresos registrados del servicio"
+    AppSection.CONEXION -> "App enlazada con el servidor del bar"
+    AppSection.PERSONALIZAR -> "Logo, nombre y colores del bar"
+}
+
+// Mesas nav badge: open-table count like the master sidebar
+// (App.tsx:86-88 renders the count only when > 0). Null hides the badge.
+fun mesasBadgeText(openCount: Int): String? =
+    if (openCount <= 0) null else openCount.toString()
+
+// Connectivity pill state behind the shell CONECTADO pill: paired devices
+// pulse live, unpaired ones state offline without motion.
+data class ConnectionPillState(val text: String, val live: Boolean)
+
+fun connectionPillState(paired: Boolean): ConnectionPillState =
+    if (paired) {
+        ConnectionPillState(text = "CONECTADO", live = true)
+    } else {
+        ConnectionPillState(text = "SIN CONEXIÓN", live = false)
+    }
 
 // Pairing gate: unpaired devices land on Conexión (the pairing entry,
 // QR-first kept); paired devices land on Panel.

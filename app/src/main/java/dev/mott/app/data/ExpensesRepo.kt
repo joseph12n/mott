@@ -1,15 +1,20 @@
 package dev.mott.app.data
 
 import dev.mott.app.data.remote.MittApi
+import kotlinx.coroutines.CancellationException
 import java.io.IOException
 import java.util.UUID
 
 // Expense row for the Gastos section: mirrors the mitt expense wire
 // (description/qty/cost_cents/date) with the date kept as the raw hub
-// string; formatting it is a UI concern, not a sync concern.
+// string; formatting it is a UI concern, not a sync concern. Qty is a
+// measured amount (units, kilos, liters) and may be fractional; line
+// totals multiply qty by the unit cost (see expenseLineTotal), exactly
+// like the mitt PC Gastos reduction.
 data class ExpenseItem(
     val id: String,
     val description: String,
+    val qty: Double = 1.0,
     val costCents: Long,
     val date: String,
 )
@@ -37,7 +42,7 @@ class ExpensesRepo(
             val response = api.listExpenses()
             if (!response.isSuccessful) throw ApiException(response.code(), "expenses failed: ${response.code()}")
             val items = (response.body()?.expenses ?: emptyList()).map {
-                ExpenseItem(id = it.id, description = it.description, costCents = it.costCents, date = it.date)
+                ExpenseItem(id = it.id, description = it.description, qty = it.qty, costCents = it.costCents, date = it.date)
             }
             last = items
             hasCache = true
@@ -58,13 +63,33 @@ class ExpensesRepo(
             costCents = costCents,
             dateEpochMs = System.currentTimeMillis(),
         )
-        queue.enqueue(OpTypes.ADD_EXPENSE, PendingQueue.encode(payload))
-        if (!isOnline()) {
-            return "PENDIENTE (${queue.peekAll().size})"
+        // The enqueue runs on its own: an op that never reaches the queue
+        // is NOT pending (same rule as the ANOTAR path), so the UI never
+        // promises a sync that will never happen. Cancellation keeps
+        // propagating (R3-002), never collapsing into a status string.
+        val enqueued = try {
+            queue.enqueue(OpTypes.ADD_EXPENSE, PendingQueue.encode(payload))
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            false
         }
-        drain?.invoke()
-        val pending = queue.peekAll().size
-        return if (pending == 0) "SINCRONIZADO" else "PENDIENTE ($pending)"
+        if (!enqueued) return "ERROR: NO GUARDADO"
+        try {
+            if (!isOnline()) {
+                return "PENDIENTE (${queue.peekAll().size})"
+            }
+            drain?.invoke()
+            val pending = queue.peekAll().size
+            return if (pending == 0) "SINCRONIZADO" else "PENDIENTE ($pending)"
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // Drain/count failure (serialization on a captive portal,
+            // runtime): bare PENDIENTE rather than a fabricated number.
+            return "PENDIENTE"
+        }
     }
 
     private suspend fun cachedOrEmpty(): List<ExpenseItem> = if (hasCache) last else emptyList()

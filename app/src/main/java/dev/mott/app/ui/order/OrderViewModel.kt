@@ -225,7 +225,14 @@ class OrderViewModel(
 
     // ANOTAR pipeline: validate + build the payload (commit), enqueue it as
     // SAVE_TAB, then drain when online. Suspend version for tests; submit()
-    // below is the UI entry point running it in viewModelScope.
+    // below is the UI entry point running it in viewModelScope. Enqueue runs
+    // in its own runCatching: if the op never reaches the queue (disk/encode
+    // failure) the order is NOT pending, so lastSync reports ERROR instead of
+    // promising a sync that will never happen. Drain + count run in a second
+    // runCatching: a non-IO failure there (e.g. serialization on a
+    // captive-portal body) reports PENDIENTE instead of escaping into
+    // viewModelScope and crashing the process; a count failure reports bare
+    // PENDIENTE rather than a fabricated number.
     suspend fun commitAndSync(): ClosedTab? {
         val payload = commit() ?: return null
         val queue = sync ?: return payload
@@ -242,16 +249,27 @@ class OrderViewModel(
             },
             isClosed = false,
         )
-        queue.enqueue(OpTypes.SAVE_TAB, PendingQueue.encode(tab))
-        if (!queue.isOnline()) {
-            val pending = queue.pendingCount()
-            _state.update { it.copy(lastSync = "PENDIENTE ($pending)") }
+        val enqueued = runCatching {
+            queue.enqueue(OpTypes.SAVE_TAB, PendingQueue.encode(tab))
+        }.isSuccess
+        if (!enqueued) {
+            _state.update { it.copy(lastSync = "ERROR: NO GUARDADO") }
             return payload
         }
-        queue.drainOnce()
-        val pending = queue.pendingCount()
+        val pending = runCatching {
+            if (queue.isOnline()) {
+                queue.drainOnce()
+            }
+            queue.pendingCount()
+        }.getOrNull()
         _state.update {
-            it.copy(lastSync = if (pending == 0) "SINCRONIZADO" else "PENDIENTE ($pending)")
+            it.copy(
+                lastSync = when {
+                    pending == null -> "PENDIENTE"
+                    pending == 0 -> "SINCRONIZADO"
+                    else -> "PENDIENTE ($pending)"
+                },
+            )
         }
         return payload
     }
@@ -265,14 +283,22 @@ class OrderViewModel(
     // CERRAR MESA pipeline for an occupied table: enqueues the CLOSE_TAB op
     // against the hub tab id and drains when online. True when nothing is
     // left pending; offline enqueues and reports false so the UI can show
-    // PENDIENTE instead of pretending the table closed.
+    // PENDIENTE instead of pretending the table closed. Enqueue runs on its
+    // own: a lost CLOSE_TAB op returns false so the UI keeps the table open
+    // for retry instead of pretending it closed. Any later queue/drain
+    // failure reports false instead of throwing (same rule as ANOTAR).
     suspend fun closeTabAndSync(tabId: String, tableId: String): Boolean {
         val queue = sync ?: return false
         val tab = TabPayload(id = tabId, tableId = tableId, lines = emptyList(), isClosed = true)
-        queue.enqueue(OpTypes.CLOSE_TAB, PendingQueue.encode(tab))
-        if (!queue.isOnline()) return false
-        queue.drainOnce()
-        return queue.pendingCount() == 0
+        val enqueued = runCatching {
+            queue.enqueue(OpTypes.CLOSE_TAB, PendingQueue.encode(tab))
+        }.isSuccess
+        if (!enqueued) return false
+        return runCatching {
+            if (!queue.isOnline()) return@runCatching false
+            queue.drainOnce()
+            queue.pendingCount() == 0
+        }.getOrDefault(false)
     }
 
     // UI entry for the CERRAR button. Falls back to viewModelScope in

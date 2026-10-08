@@ -57,16 +57,18 @@ sealed interface PairResult {
     data object Unreachable : PairResult
 }
 
-// Validates a parsed pairing against GET /api/health carrying the token.
-// ApiClient skips auth on health by design, so this uses a direct OkHttp
-// call: any 2xx with the Bearer token attached counts as paired, 401/403
-// mean a stale token, anything else (IO/timeout/cleartext) is unreachable.
+// Validates a parsed pairing against the AUTHED GET /api/products carrying
+// the token, mirroring the mitt web client. GET /api/health is public (the
+// hub exempts it from auth) and the hub rotates its token every run, so a
+// health check would happily accept a stale token that then 401s on every
+// real call: 2xx on products means paired, 401/403 mean a stale token,
+// anything else (IO/timeout/cleartext) is unreachable.
 suspend fun validatePairing(baseUrl: String, token: String): PairResult {
     return withContext(Dispatchers.IO) {
         runCatching {
             val client = OkHttpClient()
             val request = Request.Builder()
-                .url(baseUrl.trimEnd('/') + "/api/health")
+                .url(baseUrl.trimEnd('/') + "/api/products")
                 .header("Authorization", "Bearer $token")
                 .get()
                 .build()
@@ -121,7 +123,7 @@ fun PairingScreen(
                 PairResult.Ok -> Unit
                 PairResult.BadToken -> {
                     status = PairingStatus.ERROR
-                    error = "TOKEN INVÁLIDO. PEDÍ UN QR NUEVO."
+                    error = "TOKEN INVÁLIDO: EL SERVIDOR SE REINICIÓ O CAMBIÓ SU TOKEN. PEDÍ UN QR NUEVO."
                     return@launch
                 }
                 PairResult.Unreachable -> {
