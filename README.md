@@ -12,6 +12,7 @@ Offline-first against the [`mitt`](../mitt) PC hub — keep taking orders with n
 - [Quick start](#quick-start)
 - [Pairing with the hub](#pairing-with-the-hub)
 - [Order flow](#sections)
+- [Responsive layout](#responsive-layout)
 - [Offline and sync](#offline-and-sync)
 - [Catalog](#catalog)
 - [Project layout](#project-layout)
@@ -81,16 +82,38 @@ The token above is a DUMMY placeholder — never commit a real one.
 
 ## Sections
 
-Five Figma sections behind a bottom bar (unpaired devices see the QR-first
-pairing screen instead — Conexión doubles as the pairing entry):
+Seven Figma sections (Panel, Mesas, Catálogo, Proveedores, Gastos, Conexión,
+Personalizar). Unpaired devices see the QR-first pairing screen instead —
+Conexión doubles as the pairing entry. See [Responsive layout](#responsive-layout)
+for how the navigation and each section adapt to the screen width. The table
+below lists the original five; Proveedores and Personalizar follow the same rules:
 
 | Tab        | What happens                                                              |
 |------------|---------------------------------------------------------------------------|
 | Panel      | KPI hero (Ventas hoy with count-up, Mesas abiertas, En curso), hand-rolled Canvas bar chart of per-day totals ("Sin ventas todavía" when empty), recent orders |
-| Mesas      | Table grid with Ocupada/Libre pill + open-tab total; tap opens a detail sheet reusing the order/add/close actions (steppers + ANOTAR + CERRAR MESA). Table add/remove is web-only |
+| Mesas      | Grid of table tiles (one tap target each: label, Ocupada/Libre pill, open-tab total). Selecting a table opens its detail in the same screen — full width with a back button on phones, a right-hand pane on wide screens — with steppers, a sticky ANOTAR bar and inline two-tap CERRAR MESA / eliminar. No dialogs, sheets or dropdowns |
 | Catálogo   | View-only price/stock list (Disponible/Sin stock). Product add/edit is web-only; tapping a product jumps to Mesas to add it |
 | Gastos     | Expense list + add form over the outbox (`SINCRONIZADO` / `PENDIENTE`)     |
 | Conexión   | Server status, connect steps, brand surface, DESVINCULAR                   |
+
+## Responsive layout
+
+Layout decisions use the width of the area a composable actually gets
+(`BoxWithConstraints`), never the raw window, because the side rail makes
+sections narrower than the screen. The rules live in pure, unit-tested
+functions (`ui/WindowWidth.kt`, `ui/ResponsiveLayout.kt`, `ui/MesasLayout.kt`):
+
+| Width        | Navigation                                   | Section bodies                                   |
+|--------------|----------------------------------------------|--------------------------------------------------|
+| < 840dp      | One-row header + scrollable bottom pill strip (active item scrolls into view, Mesas shows the open count) | Single column; forms stack below 420dp |
+| >= 840dp     | Permanent 256dp side rail (shop name, nav, CONECTADO, Refrescar, theme) | Content capped at 1400dp |
+| section >= 720dp | —                                        | Two panes side by side (Mesas list + detail, Panel cards, forms + lists) |
+
+Rules: no dialogs, bottom sheets, popups or dropdown menus anywhere (destructive
+actions use an inline two-tap confirm), one tap target per tile, 48dp minimum
+touch targets with 8dp gaps, long names ellipsize instead of overlapping.
+Layouts were verified by unit tests and builds only; there has been no
+on-device or emulator visual pass yet.
 
 Design rules (night-bar first): dark theme default, big tabular numerals for money,
 status never color-only, every section has empty / error / offline states, 48dp+
@@ -130,7 +153,7 @@ empty when nothing was ever loaded); HTTP errors throw typed `ApiException`, nev
 | `…/data/local/`                | Room cache + outbox queue (`PendingOp`)            |
 | `…/data/remote/`               | Retrofit client + DTOs matching the mitt wire (`BrandingResponse` for hub brand)|
 | `…/data/`                      | `PairingStore`, `PairingCode`, `SyncManager`, `BrandStore`, `BrandRefresh`, `CatalogCache`, `ApiOrderCatalog`|
-| `…/ui/`                        | Sections (Panel, Mesas, Catálogo, Gastos, Conexión), bottom nav, shared `MittUi` vocabulary |
+| `…/ui/`                        | Seven sections, `AdaptiveShell` (nav strip / side rail), shared `MittUi` + `ResponsiveLayout` vocabulary |
 | `…/ui/order/`                  | Order state: ViewModel + shared chrome (headers, banners, states) |
 | `…/ui/pair/`                   | Pairing screen (scan + paste)                       |
 | `…/ui/theme/`                  | `MottTheme`, token-driven colors, total text styles |

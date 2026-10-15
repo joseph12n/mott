@@ -23,3 +23,6 @@ local.properties
 
 # Local release artifacts
 /dist/
+
+# Kotlin compiler session data
+.kotlin/
