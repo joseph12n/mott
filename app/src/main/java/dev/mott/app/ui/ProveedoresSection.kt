@@ -1,11 +1,14 @@
 package dev.mott.app.ui
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -198,8 +201,16 @@ fun ProveedoresSection(modifier: Modifier = Modifier) {
         }
     }
 
+    // Layout follows the section's own width (the side rail narrows it).
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+    val sectionWidthDp = maxWidth.value.toInt()
+    // Width of the add-form card interior: half a pane on wide sections,
+    // the full card otherwise (16dp padding + 16dp card padding per side).
+    val bodyWidthDp = sectionWidthDp - 32
+    val formWidthDp = if (twoPaneFor(bodyWidthDp)) (bodyWidthDp - 16) / 2 - 32 else bodyWidthDp - 32
+    val inlineFields = inlineFormFor(formWidthDp)
     Column(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
@@ -216,173 +227,211 @@ fun ProveedoresSection(modifier: Modifier = Modifier) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(modifier = Modifier.height(12.dp))
-        MittCard(modifier = Modifier.fillMaxWidth()) {
-            Text(text = "Agregar proveedor", style = MaterialTheme.typography.titleLarge)
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(
-                value = addName,
-                onValueChange = { addName = it },
-                label = { Text("Nombre del proveedor") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(
-                value = addPhone,
-                onValueChange = { addPhone = it },
-                label = { Text("Teléfono") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(
-                value = addNote,
-                onValueChange = { addNote = it },
-                label = { Text("Nota (rubro, horario…)") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            MittPrimaryButton(
-                label = "AGREGAR PROVEEDOR",
-                onClick = ::addSupplier,
-                enabled = addName.isNotBlank(),
-            )
-            val outcome = adminError ?: adminNote
-            if (outcome != null) {
-                Text(
-                    text = outcome,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (adminError != null) {
-                        MaterialTheme.colorScheme.error
+        TwoPane(
+            first = {
+                MittCard(modifier = Modifier.fillMaxWidth()) {
+                    Text(text = "Agregar proveedor", style = MaterialTheme.typography.titleLarge)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    val nameField: @Composable (Modifier) -> Unit = { fieldModifier ->
+                        OutlinedTextField(
+                            value = addName,
+                            onValueChange = { addName = it },
+                            label = { Text("Nombre del proveedor") },
+                            modifier = fieldModifier,
+                            singleLine = true,
+                        )
+                    }
+                    val phoneField: @Composable (Modifier) -> Unit = { fieldModifier ->
+                        OutlinedTextField(
+                            value = addPhone,
+                            onValueChange = { addPhone = it },
+                            label = { Text("Teléfono") },
+                            modifier = fieldModifier,
+                            singleLine = true,
+                        )
+                    }
+                    val noteField: @Composable (Modifier) -> Unit = { fieldModifier ->
+                        OutlinedTextField(
+                            value = addNote,
+                            onValueChange = { addNote = it },
+                            label = { Text("Nota (rubro, horario…)") },
+                            modifier = fieldModifier,
+                            singleLine = true,
+                        )
+                    }
+                    if (inlineFields) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            nameField(Modifier.weight(2f))
+                            phoneField(Modifier.weight(1f))
+                            noteField(Modifier.weight(1f))
+                        }
                     } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-            }
-        }
-        Spacer(modifier = Modifier.height(12.dp))
-        loadFailure?.let { reason ->
-            MittLoadErrorCard(
-                reason = reason,
-                onRetry = ::refresh,
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-        }
-        adminFailure?.let { reason ->
-            MittLoadErrorCard(
-                reason = reason,
-                onRetry = { adminRetry?.invoke() },
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-        }
-        if (suppliers.isEmpty() && loadFailure == null) {
-            MittCard(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = "Agrega tu primer proveedor.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        } else {
-            for (supplier in suppliers) {
-                MittClickableCard(
-                    onClick = { selIdRaw = supplier.id },
-                    selected = supplier.id == selId,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        text = supplier.name,
-                        style = MaterialTheme.typography.titleLarge,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        nameField(Modifier.fillMaxWidth())
+                        Spacer(modifier = Modifier.height(8.dp))
+                        phoneField(Modifier.fillMaxWidth())
+                        Spacer(modifier = Modifier.height(8.dp))
+                        noteField(Modifier.fillMaxWidth())
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    MittPrimaryButton(
+                        label = "AGREGAR PROVEEDOR",
+                        onClick = ::addSupplier,
+                        modifier = Modifier.heightIn(min = 48.dp),
+                        enabled = addName.isNotBlank(),
                     )
-                    Text(
-                        text = supplier.phone.ifBlank { "Sin teléfono" },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (supplier.note.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(4.dp))
+                    val outcome = adminError ?: adminNote
+                    if (outcome != null) {
                         Text(
-                            text = supplier.note,
+                            text = outcome,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                            color = if (adminError != null) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            modifier = Modifier.padding(top = 8.dp),
                         )
                     }
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-        }
-        val sup = selected
-        if (sup != null) {
-            MittCard(modifier = Modifier.fillMaxWidth()) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = sup.name,
-                            style = MaterialTheme.typography.headlineSmall,
+            },
+            second = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    loadFailure?.let { reason ->
+                        MittLoadErrorCard(
+                            reason = reason,
+                            onRetry = ::refresh,
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        if (sup.phone.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+                    adminFailure?.let { reason ->
+                        MittLoadErrorCard(
+                            reason = reason,
+                            onRetry = { adminRetry?.invoke() },
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+                    if (suppliers.isEmpty() && loadFailure == null) {
+                        MittCard(modifier = Modifier.fillMaxWidth()) {
                             Text(
-                                text = sup.phone,
+                                text = "Agrega tu primer proveedor.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                        } else {
-                            MittLivePill(text = "Sin teléfono", live = false)
+                        }
+                    } else {
+                        for (supplier in suppliers) {
+                            MittClickableCard(
+                                onClick = { selIdRaw = supplier.id },
+                                selected = supplier.id == selId,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(
+                                    text = supplier.name,
+                                    style = MaterialTheme.typography.titleLarge,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    text = supplier.phone.ifBlank { "Sin teléfono" },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                if (supplier.note.isNotBlank()) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = supplier.note,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+                    }
+                    val sup = selected
+                    if (sup != null) {
+                        MittCard(modifier = Modifier.fillMaxWidth()) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = sup.name,
+                                        style = MaterialTheme.typography.headlineSmall,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    if (sup.phone.isNotBlank()) {
+                                        Text(
+                                            text = sup.phone,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    } else {
+                                        MittLivePill(text = "Sin teléfono", live = false)
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
+                            MittDangerButton(
+                                label = if (deleteArm) "CONFIRMAR ELIMINACIÓN" else "ELIMINAR",
+                                onClick = { deleteSupplier(sup) },
+                                modifier = Modifier.heightIn(min = 48.dp),
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            OutlinedTextField(
+                                value = editName,
+                                onValueChange = { editName = it },
+                                label = { Text("Nombre") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedTextField(
+                                value = editPhone,
+                                onValueChange = { editPhone = it },
+                                label = { Text("Teléfono") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedTextField(
+                                value = editNote,
+                                onValueChange = { editNote = it },
+                                label = { Text("Nota") },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            MittPrimaryButton(
+                                label = "GUARDAR CAMBIOS",
+                                onClick = { saveSupplier(sup) },
+                                modifier = Modifier.heightIn(min = 48.dp),
+                                enabled = supplierDirty(sup, editName, editPhone, editNote) &&
+                                    editName.trim().isNotEmpty(),
+                            )
+                        }
+                    } else if (suppliers.isNotEmpty()) {
+                        MittCard(modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                text = "Selecciona o agrega un proveedor.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     }
                 }
-                Spacer(modifier = Modifier.height(12.dp))
-                MittDangerButton(
-                    label = if (deleteArm) "CONFIRMAR ELIMINACIÓN" else "ELIMINAR",
-                    onClick = { deleteSupplier(sup) },
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = editName,
-                    onValueChange = { editName = it },
-                    label = { Text("Nombre") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = editPhone,
-                    onValueChange = { editPhone = it },
-                    label = { Text("Teléfono") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = editNote,
-                    onValueChange = { editNote = it },
-                    label = { Text("Nota") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                MittPrimaryButton(
-                    label = "GUARDAR CAMBIOS",
-                    onClick = { saveSupplier(sup) },
-                    enabled = supplierDirty(sup, editName, editPhone, editNote) &&
-                        editName.trim().isNotEmpty(),
-                )
-            }
-        } else if (suppliers.isNotEmpty()) {
-            MittCard(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = "Selecciona o agrega un proveedor.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
+            },
+        )
         Spacer(modifier = Modifier.height(16.dp))
+    }
     }
 }

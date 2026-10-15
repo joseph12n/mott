@@ -1,12 +1,14 @@
 package dev.mott.app.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -21,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.mott.app.data.Pairing
 
@@ -53,8 +56,11 @@ fun ConnectionSection(
 ) {
     val clipboard = LocalClipboardManager.current
     var copied by remember { mutableStateOf(false) }
+    // Layout follows the section's own width (the side rail narrows it).
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+    val sectionWidthDp = maxWidth.value.toInt()
     Column(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
@@ -67,69 +73,81 @@ fun ConnectionSection(
                 sub = "App enlazada con el servidor del bar",
             )
         }
-        MittCard(modifier = Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(text = "Servidor", style = MaterialTheme.typography.titleLarge)
-                MittLivePill(text = connectionPillText(status), live = status == null)
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            val shop = shopName?.trim().orEmpty()
-            if (shop.isNotEmpty()) {
-                Text(
-                    text = shop,
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-            }
-            Text(
-                text = pairing.baseUrl,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            MittSecondaryButton(
-                label = connectionCopyLabel(copied),
-                onClick = {
-                    clipboard.setText(AnnotatedString(pairing.baseUrl))
-                    copied = true
-                },
-            )
-        }
-        // Named failure block: only a rejected token (hub restart rotates
-        // it) is fixable from here — DESVINCULAR drives re-pairing through
-        // the pairing gate, so the shortcut reuses it to ask for a new QR.
-        if (status != null) {
-            MittCard(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = status.title(),
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.error,
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = status.message(),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (status.showRePair()) {
+        TwoPane(
+            first = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                MittCard(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(text = "Servidor", style = MaterialTheme.typography.titleLarge)
+                        MittLivePill(text = connectionPillText(status), live = status == null)
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    val shop = shopName?.trim().orEmpty()
+                    if (shop.isNotEmpty()) {
+                        Text(
+                            text = shop,
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                    Text(
+                        text = pairing.baseUrl,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                     Spacer(modifier = Modifier.height(12.dp))
                     MittSecondaryButton(
-                        label = "PEDIR QR NUEVO",
-                        onClick = onUnpair,
+                        label = connectionCopyLabel(copied),
+                        onClick = {
+                            clipboard.setText(AnnotatedString(pairing.baseUrl))
+                            copied = true
+                        },
+                        modifier = Modifier.heightIn(min = 48.dp),
                     )
                 }
+                // Named failure block: only a rejected token (hub restart rotates
+                // it) is fixable from here — DESVINCULAR drives re-pairing through
+                // the pairing gate, so the shortcut reuses it to ask for a new QR.
+                if (status != null) {
+                    MittCard(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = status.title(),
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = status.message(),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (status.showRePair()) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            MittSecondaryButton(
+                                label = "PEDIR QR NUEVO",
+                                onClick = onUnpair,
+                                modifier = Modifier.heightIn(min = 48.dp),
+                            )
+                        }
+                    }
+                }
+                }
+            },
+            second = {
+            MittCard(modifier = Modifier.fillMaxWidth()) {
+                Text(text = "Cómo conectar", style = MaterialTheme.typography.titleLarge)
+                Spacer(modifier = Modifier.height(8.dp))
+                ConnectionSteps(connectionSteps())
             }
-        }
-        MittCard(modifier = Modifier.fillMaxWidth()) {
-            Text(text = "Cómo conectar", style = MaterialTheme.typography.titleLarge)
-            Spacer(modifier = Modifier.height(8.dp))
-            ConnectionSteps(connectionSteps())
-        }
-        ConnectionKpiCards(kpis = kpis)
+            },
+        )
+        ConnectionKpiCards(kpis = kpis, inline = inlineFormFor(sectionWidthDp - 32))
         MittCard(modifier = Modifier.fillMaxWidth()) {
             Text(text = "Dispositivo", style = MaterialTheme.typography.titleLarge)
             Spacer(modifier = Modifier.height(4.dp))
@@ -139,8 +157,13 @@ fun ConnectionSection(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(modifier = Modifier.height(12.dp))
-            MittDangerButton(label = "DESVINCULAR", onClick = onUnpair)
+            MittDangerButton(
+                label = "DESVINCULAR",
+                onClick = onUnpair,
+                modifier = Modifier.heightIn(min = 48.dp),
+            )
         }
+    }
     }
 }
 
@@ -148,40 +171,63 @@ fun ConnectionSection(
 // from the cached catalog snapshot, offline queue depth from the outbox.
 // Unwired (null) renders "—", never a fake zero.
 @Composable
-private fun ConnectionKpiCards(kpis: ConnectionKpis?, modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        MittCard(modifier = Modifier.weight(1f)) {
-            ConnectionKpiValue(
-                label = "Mesas sincronizadas",
-                value = kpis?.tableCount?.toString() ?: "—",
-                caption = "descargadas del servidor",
-            )
+private fun ConnectionKpiCards(
+    kpis: ConnectionKpis?,
+    inline: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    // One row only when the cards keep a readable width; stacked otherwise.
+    val cards: List<@Composable (Modifier) -> Unit> = listOf(
+        { m ->
+            MittCard(modifier = m) {
+                ConnectionKpiValue(
+                    label = "Mesas sincronizadas",
+                    value = kpis?.tableCount?.toString() ?: "—",
+                    caption = "descargadas del servidor",
+                )
+            }
+        },
+        { m ->
+            MittCard(modifier = m) {
+                ConnectionKpiValue(
+                    label = "Productos",
+                    value = kpis?.productCount?.toString() ?: "—",
+                    caption = "listos para anotar",
+                )
+            }
+        },
+        { m ->
+            MittCard(modifier = m) {
+                val pending = kpis?.pendingCount
+                ConnectionKpiValue(
+                    label = "Cola offline",
+                    value = when (pending) {
+                        null -> "—"
+                        0 -> "Al día"
+                        else -> pending.toString()
+                    },
+                    caption = when (pending) {
+                        null -> "sin datos todavía"
+                        0 -> "nada por sincronizar"
+                        else -> "por sincronizar"
+                    },
+                )
+            }
+        },
+    )
+    if (inline) {
+        Row(
+            modifier = modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            cards.forEach { card -> card(Modifier.weight(1f)) }
         }
-        MittCard(modifier = Modifier.weight(1f)) {
-            ConnectionKpiValue(
-                label = "Productos",
-                value = kpis?.productCount?.toString() ?: "—",
-                caption = "listos para anotar",
-            )
-        }
-        MittCard(modifier = Modifier.weight(1f)) {
-            val pending = kpis?.pendingCount
-            ConnectionKpiValue(
-                label = "Cola offline",
-                value = when (pending) {
-                    null -> "—"
-                    0 -> "Al día"
-                    else -> pending.toString()
-                },
-                caption = when (pending) {
-                    null -> "sin datos todavía"
-                    0 -> "nada por sincronizar"
-                    else -> "por sincronizar"
-                },
-            )
+    } else {
+        Column(
+            modifier = modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            cards.forEach { card -> card(Modifier.fillMaxWidth()) }
         }
     }
 }

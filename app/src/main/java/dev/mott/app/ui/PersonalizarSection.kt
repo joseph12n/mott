@@ -10,14 +10,17 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -38,6 +41,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import dev.mott.app.data.ApiException
@@ -298,8 +302,15 @@ fun PersonalizarSection(
         LogoMode.KEEP -> remoteLogo
     }
 
+    // Layout follows the section's own width (the side rail narrows it).
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+    val sectionWidthDp = maxWidth.value.toInt()
+    val bodyWidthDp = sectionWidthDp - 32
+    // Interior width of a card: a pane is half the body on two-pane widths;
+    // each card adds 16dp padding per side.
+    val cardInnerDp = (if (twoPaneFor(bodyWidthDp)) (bodyWidthDp - 16) / 2 else bodyWidthDp) - 32
     Column(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
@@ -320,208 +331,276 @@ fun PersonalizarSection(
             }
             Spacer(modifier = Modifier.height(12.dp))
         }
-        // Establecimiento: logo tile + shop name, staged locally.
-        MittCard(modifier = Modifier.fillMaxWidth()) {
-            Text(text = "Establecimiento", style = MaterialTheme.typography.titleLarge)
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(80.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    val bitmap = previewBitmap
-                    if (bitmap != null) {
-                        Image(
-                            bitmap = bitmap.asImageBitmap(),
-                            contentDescription = "Logo",
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop,
-                        )
-                    } else {
-                        Text(
-                            text = if (logoMode == LogoMode.CLEAR) "Se quita al guardar" else "Sin logo",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.padding(8.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MittSecondaryButton(
-                        label = if (previewBitmap != null) "CAMBIAR LOGO" else "SUBIR LOGO",
-                        onClick = { logoPicker.launch("image/*") },
-                    )
-                    if (logoMode == LogoMode.SET || previewBitmap != null) {
-                        TextButton(
-                            onClick = {
-                                logoMode = LogoMode.CLEAR
-                                logoDataUrl = ""
-                                logoError = null
-                            },
-                        ) { Text("Quitar") }
-                    }
-                }
-            }
-            if (logoError != null) {
-                Text(
-                    text = logoError ?: "",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(
-                value = shopName,
-                onValueChange = { shopName = it },
-                label = { Text("Nombre del local") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-            )
-            if (invalid != null) {
-                Text(
-                    text = invalid,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-            }
-        }
-        Spacer(modifier = Modifier.height(12.dp))
-        // Tema: full Sistema/Claro/Oscuro picker over the T3 store (local
-        // only, never sent in the branding DTO) plus the custom hexes.
-        MittCard(modifier = Modifier.fillMaxWidth()) {
-            Text(text = "Tema", style = MaterialTheme.typography.titleLarge)
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                for (option in personalizarThemeOptions()) {
-                    val selected = themeMode == option
-                    TextButton(
-                        onClick = {
-                            themeModeStore.save(option)
-                            themeMode = option
-                            onThemeModeChanged()
-                        },
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text(
-                            text = if (selected) "● ${option.label}" else option.label,
-                            color = if (selected) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                        )
-                    }
-                }
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(text = "Colores a medida", style = MaterialTheme.typography.titleMedium)
-            Spacer(modifier = Modifier.height(8.dp))
-            HexField(label = "Principal", value = primary, onValue = { primary = it })
-            Spacer(modifier = Modifier.height(8.dp))
-            HexField(label = "Acento", value = accent, onValue = { accent = it })
-            if (invalid != null && (isValidHex6(primary).not() || isValidHex6(accent).not())) {
-                Text(
-                    text = "Usa el formato #rrggbb.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-            }
-        }
-        Spacer(modifier = Modifier.height(12.dp))
-        MittPrimaryButton(
-            label = if (saving) "GUARDANDO…" else "GUARDAR",
-            onClick = ::save,
-            enabled = canSave,
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        MittSecondaryButton(
-            label = if (resetArm) "CONFIRMAR RESTABLECIDO" else "RESTABLECER",
-            onClick = ::reset,
-            enabled = paired && !saving,
-        )
-        val outcome = error ?: note
-        if (outcome != null) {
-            Text(
-                text = outcome,
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (error != null) {
-                    MaterialTheme.colorScheme.error
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                modifier = Modifier.padding(top = 8.dp),
-            )
-        }
-        failure?.let { reason ->
-            Spacer(modifier = Modifier.height(12.dp))
-            MittLoadErrorCard(
-                reason = reason,
-                onRetry = { retry?.invoke() },
-            )
-        }
-        Spacer(modifier = Modifier.height(12.dp))
-        // Preset gallery: the 22 PC palettes as brand/accent/tint
-        // stripes with a selected ring. Tapping one stages both hexes.
-        MittCard(modifier = Modifier.fillMaxWidth()) {
-            Text(text = "Presets de diseño", style = MaterialTheme.typography.titleLarge)
-            Text(
-                text = "${BRAND_PRESETS.size} paletas para cada tipo de local",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            for (row in BRAND_PRESETS.chunked(2)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    for (preset in row) {
-                        val on = primary == preset.brandHex && accent == preset.accentHex
-                        MittClickableCard(
-                            onClick = {
-                                primary = preset.brandHex
-                                accent = preset.accentHex
-                            },
-                            selected = on,
-                            modifier = Modifier.weight(1f),
+        TwoPane(
+            first = {
+                Column {
+                // Establecimiento: logo tile + shop name, staged locally.
+                MittCard(modifier = Modifier.fillMaxWidth()) {
+                    Text(text = "Establecimiento", style = MaterialTheme.typography.titleLarge)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    val logoTile: @Composable () -> Unit = {
+                        Box(
+                            modifier = Modifier
+                                .size(80.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center,
                         ) {
-                            PresetStripes(brandHex = preset.brandHex, accentHex = preset.accentHex)
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = preset.name,
-                                        style = MaterialTheme.typography.labelLarge,
-                                    )
-                                    Text(
-                                        text = preset.tag,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                if (on) {
-                                    Text(
-                                        text = "✓",
-                                        style = MaterialTheme.typography.titleLarge,
-                                        color = MaterialTheme.colorScheme.primary,
-                                    )
-                                }
+                            val bitmap = previewBitmap
+                            if (bitmap != null) {
+                                Image(
+                                    bitmap = bitmap.asImageBitmap(),
+                                    contentDescription = "Logo",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop,
+                                )
+                            } else {
+                                Text(
+                                    text = if (logoMode == LogoMode.CLEAR) "Se quita al guardar" else "Sin logo",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
                         }
                     }
-                    // Even row width when the gallery count is odd.
-                    if (row.size == 1) Spacer(modifier = Modifier.weight(1f))
+                    val logoActions: @Composable (Modifier) -> Unit = { actionsModifier ->
+                        Column(
+                            modifier = actionsModifier,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            MittSecondaryButton(
+                                label = if (previewBitmap != null) "CAMBIAR LOGO" else "SUBIR LOGO",
+                                onClick = { logoPicker.launch("image/*") },
+                                modifier = Modifier.heightIn(min = 48.dp),
+                            )
+                            if (logoMode == LogoMode.SET || previewBitmap != null) {
+                                TextButton(
+                                    onClick = {
+                                        logoMode = LogoMode.CLEAR
+                                        logoDataUrl = ""
+                                        logoError = null
+                                    },
+                                    modifier = Modifier.heightIn(min = 48.dp),
+                                ) { Text("Quitar") }
+                            }
+                        }
+                    }
+                    // Logo tile + actions side by side only when the card is wide
+                    // enough, stacked (tile above full-width actions) otherwise.
+                    if (inlineFormFor(cardInnerDp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            logoTile()
+                            Spacer(modifier = Modifier.width(16.dp))
+                            logoActions(Modifier.weight(1f))
+                        }
+                    } else {
+                        logoTile()
+                        Spacer(modifier = Modifier.height(8.dp))
+                        logoActions(Modifier.fillMaxWidth())
+                    }
+                    if (logoError != null) {
+                        Text(
+                            text = logoError ?: "",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = shopName,
+                        onValueChange = { shopName = it },
+                        label = { Text("Nombre del local") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                    )
+                    if (invalid != null) {
+                        Text(
+                            text = invalid,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
                 }
+                Spacer(modifier = Modifier.height(12.dp))
+                // Tema: full Sistema/Claro/Oscuro picker over the T3 store (local
+                // only, never sent in the branding DTO) plus the custom hexes.
+                MittCard(modifier = Modifier.fillMaxWidth()) {
+                    Text(text = "Tema", style = MaterialTheme.typography.titleLarge)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    // Three equal options in one row; stacked full width when the
+                    // card is too narrow for the labels to fit without clipping.
+                    val themeStacked = cardInnerDp < 296
+                    val themeOptionsBody: @Composable (Boolean) -> Unit = { stacked ->
+                        for (option in personalizarThemeOptions()) {
+                            val selected = themeMode == option
+                            TextButton(
+                                onClick = {
+                                    themeModeStore.save(option)
+                                    themeMode = option
+                                    onThemeModeChanged()
+                                },
+                                modifier = (if (stacked) Modifier.fillMaxWidth() else Modifier.weight(1f))
+                                    .heightIn(min = 48.dp),
+                            ) {
+                                Text(
+                                    text = if (selected) "● ${option.label}" else option.label,
+                                    maxLines = 1,
+                                    color = if (selected) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                )
+                            }
+                        }
+                    }
+                    if (themeStacked) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { themeOptionsBody(true) }
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { themeOptionsBody(false) }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(text = "Colores a medida", style = MaterialTheme.typography.titleMedium)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    if (inlineFormFor(cardInnerDp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            HexField(
+                                label = "Principal",
+                                value = primary,
+                                onValue = { primary = it },
+                                modifier = Modifier.weight(1f),
+                            )
+                            HexField(
+                                label = "Acento",
+                                value = accent,
+                                onValue = { accent = it },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    } else {
+                        HexField(label = "Principal", value = primary, onValue = { primary = it })
+                        Spacer(modifier = Modifier.height(8.dp))
+                        HexField(label = "Acento", value = accent, onValue = { accent = it })
+                    }
+                    if (invalid != null && (isValidHex6(primary).not() || isValidHex6(accent).not())) {
+                        Text(
+                            text = "Usa el formato #rrggbb.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                MittPrimaryButton(
+                    label = if (saving) "GUARDANDO…" else "GUARDAR",
+                    onClick = ::save,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                    enabled = canSave,
+                )
                 Spacer(modifier = Modifier.height(8.dp))
-            }
-        }
+                MittSecondaryButton(
+                    label = if (resetArm) "CONFIRMAR RESTABLECIDO" else "RESTABLECER",
+                    onClick = ::reset,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                    enabled = paired && !saving,
+                )
+                val outcome = error ?: note
+                if (outcome != null) {
+                    Text(
+                        text = outcome,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (error != null) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+                failure?.let { reason ->
+                    Spacer(modifier = Modifier.height(12.dp))
+                    MittLoadErrorCard(
+                        reason = reason,
+                        onRetry = { retry?.invoke() },
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                }
+            },
+            second = {
+                Column {
+                // Preset gallery: the 22 PC palettes as brand/accent/tint
+                // stripes with a selected ring. Tapping one stages both hexes.
+                MittCard(modifier = Modifier.fillMaxWidth()) {
+                    Text(text = "Presets de diseño", style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        text = "${BRAND_PRESETS.size} paletas para cada tipo de local",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    val presetColumns = adaptiveColumns(
+                        availableDp = cardInnerDp,
+                        minTileDp = 150,
+                        gapDp = 8,
+                        maxColumns = 4,
+                    )
+                    for (row in BRAND_PRESETS.chunked(presetColumns)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            for (preset in row) {
+                                val on = primary == preset.brandHex && accent == preset.accentHex
+                                MittClickableCard(
+                                    onClick = {
+                                        primary = preset.brandHex
+                                        accent = preset.accentHex
+                                    },
+                                    selected = on,
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    PresetStripes(brandHex = preset.brandHex, accentHex = preset.accentHex)
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = preset.name,
+                                                style = MaterialTheme.typography.labelLarge,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                            Text(
+                                                text = preset.tag,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        }
+                                        if (on) {
+                                            Text(
+                                                text = "✓",
+                                                style = MaterialTheme.typography.titleLarge,
+                                                color = MaterialTheme.colorScheme.primary,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            // Even tile width when the last row is short.
+                            repeat(presetColumns - row.size) { Spacer(modifier = Modifier.weight(1f)) }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+                }
+            },
+        )
         val loadFailure = (brandState as? LoadState.Failed)?.reason
         if (loadFailure != null) {
             MittLoadErrorCard(reason = loadFailure, onRetry = ::refresh)
@@ -529,13 +608,19 @@ fun PersonalizarSection(
         }
         Spacer(modifier = Modifier.height(16.dp))
     }
+    }
 }
 
 // Hex field with a live swatch: the staged value paints the box when it
 // parses, so typos read as an empty swatch plus the inline message.
 @Composable
-private fun HexField(label: String, value: String, onValue: (String) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
+private fun HexField(
+    label: String,
+    value: String,
+    onValue: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Box(
             modifier = Modifier
                 .size(40.dp)
@@ -547,7 +632,7 @@ private fun HexField(label: String, value: String, onValue: (String) -> Unit) {
             value = value,
             onValueChange = onValue,
             label = { Text(label) },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.weight(1f),
             singleLine = true,
         )
     }
