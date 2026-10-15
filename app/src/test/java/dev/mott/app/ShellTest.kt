@@ -6,6 +6,7 @@ import dev.mott.app.ui.connectionPillState
 import dev.mott.app.ui.mesasBadgeText
 import dev.mott.app.ui.message
 import dev.mott.app.ui.nextThemeMode
+import dev.mott.app.ui.shopDisplayName
 import dev.mott.app.ui.showRePair
 import dev.mott.app.ui.subtitle
 import dev.mott.app.ui.theme.ThemeMode
@@ -130,5 +131,13 @@ class ShellTest {
         assertTrue(LoadFailureReason.TOKEN_INVALIDO.showRePair())
         assertFalse(LoadFailureReason.SIN_SERVIDOR.showRePair())
         assertFalse(LoadFailureReason.ERROR_INESPERADO.showRePair())
+    }
+
+    @Test
+    fun `shop display name falls back to mitt when brand is missing or blank`() {
+        assertEquals("mitt", shopDisplayName(null))
+        assertEquals("mitt", shopDisplayName(""))
+        assertEquals("mitt", shopDisplayName("   "))
+        assertEquals("Bar Sol", shopDisplayName("  Bar Sol "))
     }
 }

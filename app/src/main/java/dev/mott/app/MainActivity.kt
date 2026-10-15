@@ -4,8 +4,6 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -15,13 +13,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import dev.mott.app.data.BrandStore
 import dev.mott.app.data.refreshBrandIfOnline
+import dev.mott.app.ui.AdaptiveShell
 import dev.mott.app.ui.AppContainer
 import dev.mott.app.ui.CatalogSection
 import dev.mott.app.ui.ConnectionSection
@@ -30,8 +28,6 @@ import dev.mott.app.ui.MesasSection
 import dev.mott.app.ui.PanelSection
 import dev.mott.app.ui.PersonalizarSection
 import dev.mott.app.ui.ProveedoresSection
-import dev.mott.app.ui.SectionNav
-import dev.mott.app.ui.ShellHeader
 import dev.mott.app.ui.sectionForRoute
 import dev.mott.app.ui.order.OrderViewModel
 import dev.mott.app.ui.pair.PairingScreen
@@ -39,9 +35,9 @@ import dev.mott.app.ui.theme.MottTheme
 import dev.mott.app.ui.theme.ThemeModeStore
 import kotlinx.coroutines.launch
 
-// Unified app: seven Figma sections behind a bottom NavigationBar under a
-// shell header (title + subtitle + CONECTADO pill + Refrescar + theme
-// toggle, mirroring the master Header + sidebar extras). The pairing gate
+// Unified app: seven Figma sections inside the AdaptiveShell (slim header +
+// scrollable bottom strip on compact/medium widths, permanent side rail with
+// CONECTADO pill, Refrescar and theme toggle from 840dp). The pairing gate
 // stays first when unpaired: Conexión doubles as the pairing entry
 // (QR-first PairingScreen), and the tab scaffold only mounts once a
 // pairing exists. Each tab keeps its own back stack via save/restore.
@@ -107,45 +103,36 @@ class MainActivity : ComponentActivity() {
                     // catalog reloads through the ViewModel; Conexión and
                     // the T3 scaffolds hold no load so the tick is a no-op.
                     var refreshTick by remember { mutableStateOf(0) }
-                    Scaffold(
-                        topBar = {
-                            ShellHeader(
-                                section = selected,
-                                connected = currentPairing != null,
-                                themeMode = themeMode,
-                                onRefresh = {
-                                    refreshTick++
-                                    if (selected == dev.mott.app.ui.AppSection.CATALOGO) {
-                                        scope.launch { orderViewModel.loadCatalog() }
-                                    }
-                                },
-                                onThemeModeChange = { next ->
-                                    themeModeStore.save(next)
-                                    themeMode = next
-                                },
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                            )
+                    AdaptiveShell(
+                        selected = selected,
+                        onSelect = { section ->
+                            navController.navigate(section.route) {
+                                popUpTo(navController.graph.startDestinationId) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
                         },
-                        bottomBar = {
-                            SectionNav(
-                                selected = selected,
-                                onSelect = { section ->
-                                    navController.navigate(section.route) {
-                                        popUpTo(navController.graph.startDestinationId) {
-                                            saveState = true
-                                        }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                },
-                                mesasOpenCount = orderState.tables.count { it.occupied },
-                            )
+                        mesasOpenCount = orderState.tables.count { it.occupied },
+                        connected = currentPairing != null,
+                        themeMode = themeMode,
+                        onRefresh = {
+                            refreshTick++
+                            if (selected == dev.mott.app.ui.AppSection.CATALOGO) {
+                                scope.launch { orderViewModel.loadCatalog() }
+                            }
                         },
-                    ) { innerPadding ->
+                        onThemeModeChange = { next ->
+                            themeModeStore.save(next)
+                            themeMode = next
+                        },
+                        shopName = brand?.shopName,
+                    ) { contentModifier ->
                         NavHost(
                             navController = navController,
                             startDestination = dev.mott.app.ui.AppSection.PANEL.route,
-                            modifier = Modifier.padding(innerPadding),
+                            modifier = contentModifier,
                         ) {
                             composable(dev.mott.app.ui.AppSection.PANEL.route) {
                                 PanelSection(

@@ -1,68 +1,188 @@
 package dev.mott.app.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
-// Bottom navigation across the seven Figma sections. Standard Material3
-// NavigationBar (48dp+ targets, ripple press feedback, no hover states)
-// with minimal hand-drawn Canvas glyphs: the Material icons artifact is
-// not a project dependency and the lean build adds none, so each tab gets
-// a small geometric mark in the shared 12dp-radius vocabulary instead of
-// a new library. Mesas carries the open-table badge like the master
-// sidebar (App.tsx:86-88): count only, hidden at zero.
+// Navigation across the seven Figma sections, in the master nav vocabulary
+// (App.tsx:75-90): pill items with a minimal Canvas glyph + label, the
+// active item filled with ink (onSurface) and paper (surface) text, the
+// inactive ones muted. The Material icons artifact is not a project
+// dependency, so each section keeps a small geometric mark drawn here.
+// Mesas carries the open-table badge (count only, hidden at zero).
+// [SectionNavStrip] is the compact/medium bottom bar (horizontally
+// scrollable, selected item auto-scrolls into view); [SectionNavRailItem]
+// is the full-width item stacked inside the expanded side rail.
+
+private val NavItemMinHeight = 48.dp
+
 @Composable
-fun SectionNav(
+fun SectionNavStrip(
     selected: AppSection,
     onSelect: (AppSection) -> Unit,
     modifier: Modifier = Modifier,
     mesasOpenCount: Int = 0,
 ) {
-    NavigationBar(modifier = modifier) {
-        for (section in AppSection.entries) {
-            val isSelected = section == selected
-            val badgeText = if (section == AppSection.MESAS) mesasBadgeText(mesasOpenCount) else null
-            NavigationBarItem(
-                selected = isSelected,
-                onClick = { onSelect(section) },
-                icon = {
-                    BadgedBox(
-                        badge = {
-                            if (badgeText != null) {
-                                Badge { Text(badgeText) }
-                            }
-                        },
-                    ) {
-                        SectionGlyph(section = section, selected = isSelected)
-                    }
-                },
-                label = { Text(section.label) },
+    val listState = rememberLazyListState()
+    val reducedMotion = rememberReducedMotion()
+    val edgeGapPx = with(LocalDensity.current) { 24.dp.roundToPx() }
+    LaunchedEffect(selected) {
+        val index = AppSection.entries.indexOf(selected)
+        if (!listState.isFullyVisible(index)) {
+            if (reducedMotion) {
+                listState.scrollToItem(index, -edgeGapPx)
+            } else {
+                listState.animateScrollToItem(index, -edgeGapPx)
+            }
+        }
+    }
+    Surface(modifier = modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface) {
+        Box {
+            LazyRow(
+                state = listState,
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                items(AppSection.entries, key = { it.route }) { section ->
+                    SectionNavItem(
+                        section = section,
+                        selected = section == selected,
+                        badgeText = badgeFor(section, mesasOpenCount),
+                        onClick = { onSelect(section) },
+                    )
+                }
+            }
+            HorizontalDivider(
+                modifier = Modifier.align(Alignment.TopCenter),
+                color = MaterialTheme.colorScheme.outlineVariant,
             )
         }
     }
 }
 
 @Composable
-private fun SectionGlyph(section: AppSection, selected: Boolean) {
-    val color = if (selected) {
-        MaterialTheme.colorScheme.primary
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
+fun SectionNavRailItem(
+    section: AppSection,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    mesasOpenCount: Int = 0,
+) {
+    SectionNavItem(
+        section = section,
+        selected = selected,
+        badgeText = badgeFor(section, mesasOpenCount),
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
+        fillWidth = true,
+    )
+}
+
+private fun badgeFor(section: AppSection, mesasOpenCount: Int): String? =
+    if (section == AppSection.MESAS) mesasBadgeText(mesasOpenCount) else null
+
+// True when the item at [index] is laid out entirely inside the viewport.
+private fun LazyListState.isFullyVisible(index: Int): Boolean {
+    val info = layoutInfo.visibleItemsInfo.firstOrNull { it.index == index } ?: return false
+    return info.offset >= 0 && info.offset + info.size <= layoutInfo.viewportSize.width
+}
+
+@Composable
+private fun SectionNavItem(
+    section: AppSection,
+    selected: Boolean,
+    badgeText: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    fillWidth: Boolean = false,
+) {
+    val colors = MaterialTheme.colorScheme
+    val container = if (selected) colors.onSurface else Color.Transparent
+    val content = if (selected) colors.surface else colors.onSurfaceVariant
+    Row(
+        modifier = modifier
+            .heightIn(min = NavItemMinHeight)
+            .clip(MaterialTheme.shapes.small)
+            .background(container)
+            .selectable(selected = selected, onClick = onClick, role = Role.Tab)
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        SectionGlyph(section = section, color = content)
+        Text(
+            text = section.label,
+            style = MaterialTheme.typography.labelLarge,
+            color = content,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = if (fillWidth) Modifier.weight(1f) else Modifier,
+        )
+        if (badgeText != null) {
+            NavBadge(text = badgeText, selected = selected)
+        }
     }
-    Canvas(modifier = Modifier.size(24.dp)) {
+}
+
+// Count badge: the number is the signal, color only reinforces it.
+@Composable
+private fun NavBadge(text: String, selected: Boolean) {
+    val colors = MaterialTheme.colorScheme
+    val container = if (selected) colors.surface.copy(alpha = 0.2f) else colors.primary.copy(alpha = 0.16f)
+    val content = if (selected) colors.surface else colors.primary
+    Box(
+        modifier = Modifier
+            .clip(CircleShape)
+            .background(container)
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text = text, style = MaterialTheme.typography.labelMedium, color = content, maxLines = 1)
+    }
+}
+
+// Section glyph drawn on a Canvas in [color]; reused by the strip, the rail
+// and any other shell chrome that needs the section mark.
+@Composable
+internal fun SectionGlyph(
+    section: AppSection,
+    color: Color,
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier = modifier.size(24.dp)) {
         when (section) {
             AppSection.PANEL -> drawBars(color)
             AppSection.MESAS -> drawGrid(color)
@@ -73,6 +193,34 @@ private fun SectionGlyph(section: AppSection, selected: Boolean) {
             AppSection.PERSONALIZAR -> drawSliders(color)
         }
     }
+}
+
+// Refresh mark for the compact header: open circular arrow with a head.
+@Composable
+internal fun RefreshGlyph(color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.size(24.dp)) { drawRefresh(color) }
+}
+
+private fun DrawScope.drawRefresh(color: Color) {
+    val stroke = size.width / 12f
+    val inset = size.width * 0.16f
+    drawArc(
+        color = color,
+        startAngle = -60f,
+        sweepAngle = 300f,
+        useCenter = false,
+        topLeft = Offset(inset, inset),
+        size = androidx.compose.ui.geometry.Size(size.width - inset * 2f, size.height - inset * 2f),
+        style = Stroke(width = stroke),
+    )
+    // Arrow head at the arc start (upper right), pointing clockwise.
+    val head = Path().apply {
+        moveTo(size.width * 0.86f, size.height * 0.1f)
+        lineTo(size.width * 0.88f, size.height * 0.42f)
+        lineTo(size.width * 0.58f, size.height * 0.32f)
+        close()
+    }
+    drawPath(path = head, color = color)
 }
 
 // Panel: three ascending bars on a baseline.
