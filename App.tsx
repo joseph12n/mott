@@ -19,9 +19,9 @@ import Proveedores from './src/views/Proveedores'
 // sidebar (lg:) becomes a permanent rail on wide screens and its horizontal
 // nav strip becomes the bottom bar on phones — the responsive split the
 // Kotlin client had, now in the same codebase as the web design.
-type View = 'panel' | 'mesas' | 'catalogo' | 'proveedores' | 'gastos' | 'conexion' | 'personalizar'
+type Section = 'panel' | 'mesas' | 'catalogo' | 'proveedores' | 'gastos' | 'conexion' | 'personalizar'
 
-const NAV: { id: View; label: string; glyph: string }[] = [
+const NAV: { id: Section; label: string; glyph: string }[] = [
   { id: 'panel', label: 'Panel', glyph: '▮▮' },
   { id: 'mesas', label: 'Mesas', glyph: '▦' },
   { id: 'catalogo', label: 'Catálogo', glyph: '☰' },
@@ -35,7 +35,7 @@ function Shell() {
   const s = useStore()
   const { width } = useWindowDimensions()
   const insets = useSafeAreaInsets()
-  const [view, setView] = useState<View>('panel')
+  const [view, setView] = useState<Section>('panel')
 
   const p = useMemo(() => buildPalette(s.accent, s.accent2, s.dark), [s.accent, s.accent2, s.dark])
   const openCount = s.tables.filter((t) => t.open).length
