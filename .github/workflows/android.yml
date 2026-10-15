@@ -46,7 +46,10 @@ jobs:
       - name: Collect the APK
         run: |
           mkdir -p dist
-          cp android/app/build/outputs/apk/release/app-release.apk "dist/mott-${GITHUB_REF_NAME}.apk"
+          # Branch refs contain slashes (feat/...), which would read as a
+          # missing directory in the destination path.
+          NAME=$(echo "${GITHUB_REF_NAME}" | tr '/' '-')
+          cp android/app/build/outputs/apk/release/app-release.apk "dist/mott-${NAME}.apk"
           ls -la dist
 
       - uses: actions/upload-artifact@v4
