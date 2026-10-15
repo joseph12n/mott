@@ -34,9 +34,6 @@ jobs:
       - name: Install dependencies
         run: npm install --legacy-peer-deps --no-audit --no-fund
 
-      - name: Align native versions with the Expo SDK
-        run: npx expo install --fix
-
       - name: Typecheck
         run: npx tsc --noEmit
 
