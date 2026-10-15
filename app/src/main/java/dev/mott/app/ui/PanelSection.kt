@@ -7,6 +7,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,7 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -96,8 +97,12 @@ fun PanelSection(
         panelCtas(onConnectMobile = onNavigateConnection, onViewSuppliers = onNavigateSuppliers)
     }
 
+    // The section decides on its OWN width (the side rail makes it narrower
+    // than the window): KPI row vs stack and the two-pane split follow it.
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+    val sectionWidthDp = maxWidth.value.toInt()
     Column(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
@@ -141,12 +146,14 @@ fun PanelSection(
                 }
                 PanelHero(kpis = kpis)
                 MittPrimaryButton(label = "Conectar app móvil", onClick = ctas.onConnectMobile)
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    MittCard(modifier = Modifier.weight(1f)) {
+                val ordersCard: @Composable (Modifier) -> Unit = { cardModifier ->
+                    MittCard(modifier = cardModifier) {
                         Text(
                             text = "Órdenes",
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(text = kpis.salesCount.toString(), style = MaterialTheme.typography.headlineMedium)
@@ -154,13 +161,19 @@ fun PanelSection(
                             text = "cerradas hoy",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    MittCard(modifier = Modifier.weight(1f)) {
+                }
+                val ticketCard: @Composable (Modifier) -> Unit = { cardModifier ->
+                    MittCard(modifier = cardModifier) {
                         Text(
                             text = "Ticket promedio",
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         MittMoneyText(cents = avgTicket, style = MaterialTheme.typography.headlineMedium)
@@ -168,8 +181,21 @@ fun PanelSection(
                             text = "por orden",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
+                }
+                // Equal-weight row only when each card keeps room for its
+                // label and figure; narrow sections stack them full width.
+                if (inlineFormFor(sectionWidthDp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        ordersCard(Modifier.weight(1f))
+                        ticketCard(Modifier.weight(1f))
+                    }
+                } else {
+                    ordersCard(Modifier.fillMaxWidth())
+                    ticketCard(Modifier.fillMaxWidth())
                 }
                 MittCard(modifier = Modifier.fillMaxWidth()) {
                     Text(
@@ -204,56 +230,69 @@ fun PanelSection(
                         HourlyAreaChart(buckets = hours)
                     }
                 }
-                MittCard(modifier = Modifier.fillMaxWidth()) {
-                    Text(text = "Más pedidos", style = MaterialTheme.typography.titleLarge)
-                    Spacer(modifier = Modifier.height(12.dp))
-                    if (top.isEmpty()) {
-                        Text(
-                            text = "Todavía no hay ventas registradas.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    } else {
-                        val maxTop = top.first().qty.coerceAtLeast(1)
-                        top.forEachIndexed { i, product ->
-                            TopProductRow(rank = i + 1, product = product, maxQty = maxTop)
-                            if (i < top.lastIndex) Spacer(modifier = Modifier.height(12.dp))
+                TwoPane(
+                    modifier = Modifier.fillMaxWidth(),
+                    first = {
+                        MittCard(modifier = Modifier.fillMaxWidth()) {
+                            Text(text = "Más pedidos", style = MaterialTheme.typography.titleLarge)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            if (top.isEmpty()) {
+                                Text(
+                                    text = "Todavía no hay ventas registradas.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            } else {
+                                val maxTop = top.first().qty.coerceAtLeast(1)
+                                top.forEachIndexed { i, product ->
+                                    TopProductRow(rank = i + 1, product = product, maxQty = maxTop)
+                                    if (i < top.lastIndex) Spacer(modifier = Modifier.height(12.dp))
+                                }
+                            }
                         }
-                    }
-                }
-                MittCard(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(text = "Compras por mesa", style = MaterialTheme.typography.titleLarge)
-                        Text(
-                            text = "${byTable.size} mesas",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Text(
-                        text = "Total cobrado de cada mesa",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    if (byTable.isEmpty()) {
-                        Text(
-                            text = "Aún no hay ventas. Cerrá la primera cuenta desde Mesas.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    } else {
-                        val maxTable = byTable.first().totalCents.coerceAtLeast(1L)
-                        byTable.take(7).forEachIndexed { i, row ->
-                            TableSalesRow(row = row, maxTotal = maxTable, first = i == 0)
-                            if (i < minOf(byTable.size, 7) - 1) Spacer(modifier = Modifier.height(10.dp))
+                    },
+                    second = {
+                        MittCard(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = "Compras por mesa",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    modifier = Modifier.weight(1f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    text = "${byTable.size} mesas",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Text(
+                                text = "Total cobrado de cada mesa",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            if (byTable.isEmpty()) {
+                                Text(
+                                    text = "Aún no hay ventas. Cerrá la primera cuenta desde Mesas.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            } else {
+                                val maxTable = byTable.first().totalCents.coerceAtLeast(1L)
+                                byTable.take(7).forEachIndexed { i, row ->
+                                    TableSalesRow(row = row, maxTotal = maxTable, first = i == 0)
+                                    if (i < minOf(byTable.size, 7) - 1) Spacer(modifier = Modifier.height(10.dp))
+                                }
+                            }
                         }
-                    }
-                }
+                    },
+                )
                 MittCard(modifier = Modifier.fillMaxWidth()) {
                     Text(text = "Órdenes recientes", style = MaterialTheme.typography.titleLarge)
                     Spacer(modifier = Modifier.height(8.dp))
@@ -318,6 +357,7 @@ fun PanelSection(
                 }
             }
         }
+    }
     }
 }
 
@@ -495,7 +535,7 @@ private fun TableSalesRow(row: TableSales, maxTotal: Long, first: Boolean, modif
         Text(
             text = row.label,
             style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.width(84.dp),
+            modifier = Modifier.widthIn(min = 64.dp, max = 96.dp),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )

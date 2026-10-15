@@ -2,6 +2,7 @@ package dev.mott.app.ui
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -9,8 +10,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
@@ -28,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.mott.app.data.ApiException
@@ -157,8 +164,11 @@ fun CatalogSection(
         }
     }
 
+    // Layout follows the section's own width (the side rail narrows it).
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+    val sectionWidthDp = maxWidth.value.toInt()
     Column(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxSize()
             .padding(16.dp),
     ) {
@@ -185,29 +195,37 @@ fun CatalogSection(
         MittCard(modifier = Modifier.fillMaxWidth()) {
             Text(text = "Agregar producto", style = MaterialTheme.typography.titleLarge)
             Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(
-                value = newName,
-                onValueChange = { newName = it },
-                label = { Text("Nombre del producto") },
-                placeholder = { Text("Fernet, cerveza, ...") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(
-                value = newPrice,
-                onValueChange = { newPrice = it },
-                label = { Text("Precio") },
-                placeholder = { Text("0.00") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            MittPrimaryButton(
-                label = "AGREGAR PRODUCTO",
-                onClick = ::submitProduct,
-                enabled = newName.isNotBlank() && priceCents != null,
+            ResponsiveFormFields(
+                formWidthDp = sectionWidthDp - 64,
+                first = { fieldModifier ->
+                    OutlinedTextField(
+                        value = newName,
+                        onValueChange = { newName = it },
+                        label = { Text("Nombre del producto") },
+                        placeholder = { Text("Fernet, cerveza, ...") },
+                        modifier = fieldModifier,
+                        singleLine = true,
+                    )
+                },
+                second = { fieldModifier ->
+                    OutlinedTextField(
+                        value = newPrice,
+                        onValueChange = { newPrice = it },
+                        label = { Text("Precio") },
+                        placeholder = { Text("0.00") },
+                        modifier = fieldModifier,
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    )
+                },
+                action = { actionModifier ->
+                    MittPrimaryButton(
+                        label = "AGREGAR PRODUCTO",
+                        onClick = ::submitProduct,
+                        modifier = actionModifier,
+                        enabled = newName.isNotBlank() && priceCents != null,
+                    )
+                },
             )
             val outcome = adminError ?: adminNote
             if (outcome != null) {
@@ -239,55 +257,95 @@ fun CatalogSection(
                 modifier = Modifier.weight(1f),
             )
         } else {
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(state.products, key = { it.id }) { product ->
-                    MittCard(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .then(
-                                if (product.available) {
-                                    Modifier
-                                        .clip(MaterialTheme.shapes.large)
-                                        .clickable { onPick(product.id) }
-                                } else {
-                                    Modifier
-                                },
-                            ),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = product.name,
-                                    style = MaterialTheme.typography.titleLarge,
-                                    color = if (product.available) {
-                                        MaterialTheme.colorScheme.onSurface
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                    },
-                                )
-                                MittMoneyText(
-                                    cents = product.priceCents,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            MittStockPill(available = product.available)
-                            // Trash marks the product unavailable (PATCH
-                            // available=false); only on sellable rows, like
-                            // the Mesas chip X.
-                            if (product.available) {
-                                TextButton(
-                                    onClick = { markUnavailable(product) },
-                                    modifier = Modifier.height(32.dp),
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                                ) {
-                                    Text(text = "✕", fontSize = 14.sp)
-                                }
-                            }
-                        }
+            // Wide sections show a tile grid; narrow ones keep one column.
+            // One scroll axis only: the grid/list is the sole scroller here.
+            val columns = adaptiveColumns(sectionWidthDp - 32, minTileDp = 260, gapDp = 8)
+            if (columns > 1) {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(columns),
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    gridItems(state.products, key = { it.id }) { product ->
+                        ProductTile(product, onPick = onPick, onMarkUnavailable = ::markUnavailable)
                     }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(state.products, key = { it.id }) { product ->
+                        ProductTile(product, onPick = onPick, onMarkUnavailable = ::markUnavailable)
+                    }
+                }
+            }
+        }
+    }
+    }
+}
+
+// One catalog row/tile. The pick target (name + price + pill) and the trash
+// control are siblings, never nested, with an 8dp gap; both are >= 48dp.
+@Composable
+private fun ProductTile(
+    product: Product,
+    onPick: (String) -> Unit,
+    onMarkUnavailable: (Product) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    MittCard(modifier = modifier.fillMaxWidth()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 48.dp)
+                    .then(
+                        if (product.available) {
+                            Modifier
+                                .clip(MaterialTheme.shapes.medium)
+                                .clickable { onPick(product.id) }
+                        } else {
+                            Modifier
+                        },
+                    ),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = product.name,
+                        style = MaterialTheme.typography.titleLarge,
+                        color = if (product.available) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    MittMoneyText(
+                        cents = product.priceCents,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                MittStockPill(available = product.available)
+            }
+            // Trash marks the product unavailable (PATCH available=false);
+            // only on sellable rows.
+            if (product.available) {
+                TextButton(
+                    onClick = { onMarkUnavailable(product) },
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .widthIn(min = 48.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                ) {
+                    Text(text = "✕", fontSize = 14.sp)
                 }
             }
         }
