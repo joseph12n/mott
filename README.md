@@ -1,198 +1,105 @@
-# mott — Android app for bar waitstaff
+# mott — bar app (React Native)
 
-Native Android app for taking bar orders: pick a table, add products, get the bill automatically.
-Offline-first against the [`mitt`](../mitt) PC hub — keep taking orders with no Wi-Fi, sync later.
+Native mobile app for a small bar: tables, orders, catalogue, suppliers, expenses,
+branding and a day panel. React Native (Expo) + TypeScript, one codebase for Android
+(and iOS), and it owns its own data: **the phone works with no PC and no Wi-Fi**.
 
-> **Status:** unified sections complete and build-verified (126 unit tests green, debug APK builds).
-> Not field-tested in a real bar yet — see [Limitations](#limitations).
+The visual language is a direct port of the web/Figma master in
+[`mottandmittdesing/`](mottandmittdesing) — same sections, same tokens, same copy —
+so the PC dashboard and the app stay visually identical.
 
-## Contents
-
-- [How it works](#how-it-works)
-- [Quick start](#quick-start)
-- [Pairing with the hub](#pairing-with-the-hub)
-- [Order flow](#sections)
-- [Offline and sync](#offline-and-sync)
-- [Catalog](#catalog)
-- [Project layout](#project-layout)
-- [Design tokens](#design-tokens)
-- [Brand](#brand)
-- [Compatibility](#compatibility)
-- [Roadmap](#roadmap)
-- [Contributing](#contributing)
-- [Limitations](#limitations)
-
-## How it works
-
-```mermaid
-flowchart LR
-    W[mozo<br/>this app] -- order --> Q[(outbox queue<br/>Room)]
-    Q -- Wi-Fi back?<br/>FIFO sync --> H[mitt hub<br/>PC]
-    H -- catalog<br/>pull --> W
-```
-
-1. **Pair** the phone with the PC hub once (QR or pasted code).
-2. **Pull** the catalog from the hub: tables with occupancy (`GET /api/tables`)
-   plus all products with prices and availability (`GET /api/products`,
-   unfiltered — unavailable rows stay listed but disabled, same rule as web).
-   The snapshot is cached on-device, so the flow keeps working offline.
-3. **Take orders** in Mesas: pick a table, add products in its sheet, ANOTAR. Totals compute on-device, instantly.
-4. Every order lands in an **outbox queue**; a FIFO sync drains it to the hub when there is connectivity.
-
-## Quick start
-
-Requirements: Java 17+, Android SDK with platform `android-35` (set `ANDROID_HOME`).
-
-```bash
-export ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk
-./gradlew :app:assembleDebug
-./gradlew :app:testDebugUnitTest
-```
-
-The APK lands at `app/build/outputs/apk/debug/app-debug.apk`. Install it with
-`adb install -r` or copy it to the phone.
-
-## Pairing with the hub
-
-On first run the app asks to pair. Two ways, same result:
-
-- **Scan** the hub QR, or
-- **Paste** the code.
-
-The app validates the code against `GET /api/health` with the token and saves
-the pairing locally (plain prefs for now — encrypted storage is on the roadmap).
-Scanning uses the Play services code scanner (needs Play Services on device;
-manual paste remains the fallback).
-
-QR format (URL-encoded params):
-
-```text
-mitt://pair?url=http%3A%2F%2F192.168.1.20%3A8080&token=DUMMY-DUMMY-TOKEN-0000
-```
-
-Manual-paste fallback (`url|token`):
-
-```text
-http://192.168.1.20:8080|DUMMY-DUMMY-TOKEN-0000
-```
-
-Rules: scheme `mitt`, host `pair`, `http(s)` URL with explicit port, token of 16+ chars.
-The token above is a DUMMY placeholder — never commit a real one.
+> **Status:** ported from the Kotlin client to React Native. APKs are built by
+> GitHub Actions ([`.github/workflows/android.yml`](.github/workflows/android.yml))
+> and published as release assets. Not field-tested in a real bar yet.
 
 ## Sections
 
-Five Figma sections behind a bottom bar (unpaired devices see the QR-first
-pairing screen instead — Conexión doubles as the pairing entry):
+Seven sections behind one shell, in the master's order:
 
-| Tab        | What happens                                                              |
-|------------|---------------------------------------------------------------------------|
-| Panel      | KPI hero (Ventas hoy with count-up, Mesas abiertas, En curso), hand-rolled Canvas bar chart of per-day totals ("Sin ventas todavía" when empty), recent orders |
-| Mesas      | Table grid with Ocupada/Libre pill + open-tab total; tap opens a detail sheet reusing the order/add/close actions (steppers + ANOTAR + CERRAR MESA). Table add/remove is web-only |
-| Catálogo   | View-only price/stock list (Disponible/Sin stock). Product add/edit is web-only; tapping a product jumps to Mesas to add it |
-| Gastos     | Expense list + add form over the outbox (`SINCRONIZADO` / `PENDIENTE`)     |
-| Conexión   | Server status, connect steps, brand surface, DESVINCULAR                   |
+| Tab | What it does |
+|-----|--------------|
+| Panel | KPI cards, sales per hour, top products, sales per table, recent orders and supplier balances |
+| Mesas | Table tiles with occupancy; opening a table shows its bill **inside the screen** (right pane on wide screens, full width with a back button on phones), add items with steppers, close with a two-tap confirm |
+| Catálogo | Products grouped by category, add and remove |
+| Proveedores | Suppliers with what they sell, purchases, what is owed, and settling the balance |
+| Gastos | Day expenses with a running total |
+| Conexión | The bar server's address, how to link the phone, and the hub's public API |
+| Personalizar | Shop name, light/dark theme, custom colors and the 22 design presets |
 
-Design rules (night-bar first): dark theme default, big tabular numerals for money,
-status never color-only, every section has empty / error / offline states, 48dp+
-touch targets, no hover states, motion only where it feeds back (count-ups snap
-under reduced motion).
+Rules kept from the design work: no dialogs, sheets or dropdown menus anywhere
+(destructive actions confirm with a second tap), one tap target per tile, every
+control at least 48dp, long names ellipsize instead of overlapping, and status is
+always a text label with a dot — never color alone.
 
-## Offline and sync
+## Responsive layout
 
-- Orders enqueue locally as typed ops (`SAVE_TAB`, …) with JSON payloads.
-- `SyncManager.drainOnce()` sends them FIFO: `2xx` → done, `4xx` → dropped as
-  poison (counted in the report), `5xx`/I-O → kept for later, order preserved.
-- After 5 failed attempts an op is flagged exhausted instead of retried forever.
-- The UI shows `SINCRONIZADO` or `PENDIENTE (n)` after each submission.
+Breakpoints live in [`src/theme.ts`](src/theme.ts) and follow the web master's `lg:`
+sidebar and the responsive work before it:
 
-## Catalog
+| Width | Navigation | Bodies |
+|-------|------------|--------|
+| < 840dp | One-row header plus a scrollable bottom pill strip | Single column |
+| >= 840dp | Permanent 256dp rail (shop name, sections, data summary) | Content capped at 1400dp |
+| >= 720dp of body width | — | Two panes side by side (Mesas list + bill, Proveedores list + fiche) |
 
-The hub is the single source of truth — no preset tables or products in the
-production path. On Tables entry the app refreshes `ApiOrderCatalog` when
-online (`GET /api/tables` + `GET /api/products`) and serves the last snapshot
-otherwise. The snapshot lives in the `catalog` prefs (`CatalogCache`: tables +
-products JSON + timestamp); Room stays the op-queue store, the catalog is a
-small replace-whole snapshot by design. `FakeOrderCatalog` exists for
-previews and JVM tests only.
+## Theme tokens
 
-Panel data reads `GET /api/sales?limit=` (newest first, same sale shape as closing a tab)
-and `GET /api/sales/today` (`{date, count, total_cents}`) through `SalesRepo`, which also
-maps `GET /api/tabs/open` onto the domain `Tab` for the Mesas operate view. All three
-getters keep the last good payload in memory and serve it offline or unpaired (explicit
-empty when nothing was ever loaded); HTTP errors throw typed `ApiException`, never silent zeros.
+`src/theme.ts` carries the master's tokens (`mottandmittdesing/src/index.css`) 1:1:
+the same `color-mix()` recipes for paper/surface/sunk/line/brand-soft are computed in
+JS from the shop's brand color, for both the light and dark role sets. Changing the
+brand in Personalizar repaints the app.
 
-## Project layout
+Two honest deviations from the web, both stated in the UI instead of faked:
 
-| Path                           | Purpose                                            |
-|--------------------------------|----------------------------------------------------|
-| `app/`                         | `:app` module (`dev.mott.app`), Compose + Material3|
-| `…/domain/`                    | Offline rules: product, order line, tab, expense    |
-| `…/data/local/`                | Room cache + outbox queue (`PendingOp`)            |
-| `…/data/remote/`               | Retrofit client + DTOs matching the mitt wire (`BrandingResponse` for hub brand)|
-| `…/data/`                      | `PairingStore`, `PairingCode`, `SyncManager`, `BrandStore`, `BrandRefresh`, `CatalogCache`, `ApiOrderCatalog`|
-| `…/ui/`                        | Sections (Panel, Mesas, Catálogo, Gastos, Conexión), bottom nav, shared `MittUi` vocabulary |
-| `…/ui/order/`                  | Order state: ViewModel + shared chrome (headers, banners, states) |
-| `…/ui/pair/`                   | Pairing screen (scan + paste)                       |
-| `…/ui/theme/`                  | `MottTheme`, token-driven colors, total text styles |
-| `gradle/libs.versions.toml`    | Version catalog (AGP, Kotlin, Compose, Room…)       |
-| `odd/tasks/`                   | Local planning only — **not committed** (git-ignored)|
+- The master's webfonts (Bricolage Grotesque, Figtree, DM Mono) are not bundled yet;
+  text uses the platform font and numbers keep tabular figures in the platform mono.
+- The logo cannot be uploaded from the app (that needs an image-picker dependency), so
+  the tile shows the shop's initial and says the logo is uploaded from the web.
 
-## Design tokens
+## Local data
 
-Theme roles copy the shared token set 1:1 from mitt [`docs/design-tokens.md`](../../mitt/docs/design-tokens.md)
-(reference only): dark-first roles, type/spacing scales, 48dp touch minimums.
-Token hex values in `Theme.kt` carry the token-name comments — change the token doc
-first, then mirror here, so PC and phone stay visually consistent.
+State lives on the phone (`src/store.tsx`) and is persisted to AsyncStorage as one JSON
+object, validated field by field on load so a truncated or older payload falls back to
+the seeds instead of crashing. Writes are coalesced so rapid taps never queue dozens of
+whole-state writes.
 
-### Visual language (web master → mobile)
+## Build
 
-The phone screens speak the same visual language as the mitt web hub: the Figma
-master (`mottandmittdesing`, read-only reference) owns the vocabulary and `ui/MittUi.kt`
-is its mobile translation — `.card` becomes `MittCard` (tonal surface, 1px line border,
-20dp radius, zero elevation), `.pill` becomes `MittStatusPill`/`MittStockPill`
-(text + dot, never color-only), `.btn` becomes `MittPrimaryButton`/`MittDangerButton`
-(≥48dp touch targets), `.num` tabular figures become `MittMoneyText` over the shared
-`Money.formatCents`, and the Panel KPI grid collapses into `MittKpiRow` (hero total
-with count-up plus open-table and availability counts, all computed live from the
-already-loaded `OrderUiState`). Colors stay token-driven with the hub brand on top,
-so the translation is shapes and rhythm, never a second palette.
+Local (Node 22+ and the Android SDK):
 
-## Brand
+```bash
+npm install
+npx expo start                        # dev server, JS only
+npx expo prebuild --platform android
+cd android && ./gradlew assembleRelease
+```
 
-Shop name and colors come from the hub, not from the app: public
-`GET /api/branding` (`shop_name`, `primary`, `accent`, `background`) is fetched
-on pairing and on app start when online, then cached in `brand` prefs. Offline
-or failed refreshes keep the cached values silently, falling back to the mitt
-dark tokens. The theme follows the device (no in-app toggle); the hub accent
-drives actions in both modes and hub background/primary drive dark-mode
-surfaces, with readable on-colors picked by luminance. The hub logo stays
-web-only — the app ships no image-loading dependencies by design.
+In CI, every push that touches the app runs
+`.github/workflows/android.yml`: install, `expo install --fix` (aligns native versions
+with the SDK), typecheck, `expo prebuild`, `assembleRelease`, and the APK is uploaded as
+a workflow artifact. Tagging `v*` also attaches that APK to a GitHub release, so a
+build can be downloaded straight from the repository.
+
+The release APK is signed with the debug keystore the Expo template generates: fine for
+testing, **not** for a store upload.
 
 ## Compatibility
 
-| What      | Supported from                                      |
-|-----------|-----------------------------------------------------|
-| Android   | 8.0 (API 26) and up                                 |
-| Hub       | `mitt` on the same Wi-Fi (Windows 10+ / any Linux)  |
-| Build     | Gradle wrapper committed — no system Gradle needed  |
-
-## Roadmap
-
-- Per-person split inside a table.
-- Encrypted pairing storage, push-free LAN discovery.
-- Rendered sync status on the confirm screen (state exists, label pending).
-- On-device test pass (QR scan, camera rationale, live-hub pairing).
+| What | Supported from |
+|------|----------------|
+| Android | whatever the current Expo SDK supports (7.0+ today) |
+| iOS | same codebase (`npx expo run:ios`) |
+| PC hub | optional: the app works alone; the hub is an add-on for a shared catalogue |
 
 ## Contributing
 
-Open source — adjust it to your bar's needs. Conventions:
-
-- Conventional Commits (`feat:`, `fix:`, `docs:`, …), one work unit per commit.
-- JVM tests travel with behavior: `./gradlew :app:testDebugUnitTest` stays green.
-- No secrets in the repo: no `local.properties`, no keystores, no real tokens.
+- Conventional Commits, one work unit per commit.
+- Artifact language is English; user-visible copy stays Spanish, like the master.
+- Run `npx tsc --noEmit` before pushing.
 
 ## Limitations
 
-- QR scanning, camera permission flow, and live-hub pairing are unit-tested only —
-  no device/emulator pass yet.
-- Pairing secrets use plain prefs (hardening tracked).
+- No on-device pass yet: the port is verified by typecheck and the CI build, not by
+  using the app on a phone.
+- The share sheet hands off the server address; the app has no QR scanner yet.
+- There is no LAN sync with the PC hub in this version: the phone's data is its own.

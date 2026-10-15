@@ -1,25 +1,38 @@
-# Android
-*.iml
-.gradle/
-/local.properties
-.idea/
-.DS_Store
-/build/
-/app/build/
-/captures
-.externalNativeBuild/
-.cxx/
-local.properties
-*.hprof
-*.keystore
+# Node / Expo
+node_modules/
+.expo/
+dist/
+web-build/
+*.log
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# Generated native projects (CI regenerates them with `expo prebuild`)
+/android/
+/ios/
+
+# Local build artifacts
 *.apk
 *.aab
+*.keystore
+*.jks
+local.properties
 
-# Keep the Gradle wrapper jar committed so builds work without a system Gradle.
-!gradle/wrapper/gradle-wrapper.jar
+# The design master keeps its own project
+mottandmittdesing/node_modules/
+mottandmittdesing/dist/
 
-# Local ODD planning mirror (kept in Engram, not in git)
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+.kotlin/
+
+# Repo-local planning mirror (kept in Engram, not in git)
 /odd/
+/.atl/
 
-# Local release artifacts
-/dist/
+# Gradle leftovers from the old Kotlin project
+.gradle/
+build/
