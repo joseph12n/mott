@@ -1,12 +1,18 @@
 package dev.mott.app.data.standalone
 
+import kotlinx.serialization.Serializable
+
 // Persistence seam under LocalMittApi (standalone mode: the phone is its own
 // hub). Pure Kotlin, suspend, one simple operation per method with no
-// cross-method transactions: a Room-backed implementation maps each method to
-// one DAO call. Read-modify-write sequences are serialized by LocalMittApi, and
-// a tab and its lines always travel together through saveTab. Times are epoch
-// millis; the api layer owns every wire format.
+// cross-method transactions: a file- or Room-backed implementation maps each
+// method to one write. Read-modify-write sequences are serialized by
+// LocalMittApi, and a tab and its lines always travel together through
+// saveTab. Times are epoch millis; the api layer owns every wire format.
+//
+// @Serializable so the file-backed store (JsonFileLocalStore) can persist
+// these records directly instead of mirroring every field a second time.
 
+@Serializable
 data class StoredProduct(
     val id: String,
     val name: String,
@@ -14,12 +20,14 @@ data class StoredProduct(
     val available: Boolean,
 )
 
+@Serializable
 data class StoredTable(
     val id: String,
     val label: String,
 )
 
 // One order line with the unit price snapshotted when it was first ordered.
+@Serializable
 data class StoredLine(
     val productId: String,
     val name: String,
@@ -27,6 +35,7 @@ data class StoredLine(
     val qty: Int,
 )
 
+@Serializable
 data class StoredTab(
     val id: String,
     val tableId: String,
@@ -36,6 +45,7 @@ data class StoredTab(
 )
 
 // Immutable snapshot of a closed tab; its id mirrors the tab id.
+@Serializable
 data class StoredSale(
     val id: String,
     val tableId: String,
@@ -44,6 +54,7 @@ data class StoredSale(
     val closedAt: Long,
 )
 
+@Serializable
 data class StoredExpense(
     val id: String,
     val description: String,
@@ -52,6 +63,7 @@ data class StoredExpense(
     val date: Long,
 )
 
+@Serializable
 data class StoredSupplier(
     val id: String,
     val name: String,
@@ -61,6 +73,7 @@ data class StoredSupplier(
 
 // Singleton row. logoDataUrl keeps the validated "data:<mime>;base64,..." text
 // so the store needs no blob handling; null means no logo.
+@Serializable
 data class StoredBranding(
     val shopName: String,
     val primary: String,
