@@ -76,6 +76,8 @@ fun CatalogSection(
     // Admin seam: production takes the container's repo (local in MOBILE,
     // the hub in HUB); tests and previews inject their own.
     val admin = catalogAdmin ?: remember(services) { services.catalogAdmin() }
+    // Products are catalog administration: the PC owns it in HUB mode.
+    val canAdmin = services.capabilities().canAdminCatalog
     var newName by remember { mutableStateOf("") }
     var newPrice by remember { mutableStateOf("") }
     var adminNote by remember { mutableStateOf<String?>(null) }
@@ -183,6 +185,9 @@ fun CatalogSection(
         Spacer(modifier = Modifier.height(12.dp))
         MittCard(modifier = Modifier.fillMaxWidth()) {
             Text(text = "Agregar producto", style = MaterialTheme.typography.titleLarge)
+            if (!canAdmin) {
+                HubAdminNotice()
+            }
             Spacer(modifier = Modifier.height(8.dp))
             ResponsiveFormFields(
                 formWidthDp = sectionWidthDp - 64,
@@ -212,7 +217,7 @@ fun CatalogSection(
                         label = "AGREGAR PRODUCTO",
                         onClick = ::submitProduct,
                         modifier = actionModifier,
-                        enabled = newName.isNotBlank() && priceCents != null,
+                        enabled = canAdmin && newName.isNotBlank() && priceCents != null,
                     )
                 },
             )
@@ -257,7 +262,12 @@ fun CatalogSection(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     gridItems(state.products, key = { it.id }) { product ->
-                        ProductTile(product, onPick = onPick, onMarkUnavailable = ::markUnavailable)
+                        ProductTile(
+                            product = product,
+                            onPick = onPick,
+                            onMarkUnavailable = ::markUnavailable,
+                            canAdmin = canAdmin,
+                        )
                     }
                 }
             } else {
@@ -266,7 +276,12 @@ fun CatalogSection(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(state.products, key = { it.id }) { product ->
-                        ProductTile(product, onPick = onPick, onMarkUnavailable = ::markUnavailable)
+                        ProductTile(
+                            product = product,
+                            onPick = onPick,
+                            onMarkUnavailable = ::markUnavailable,
+                            canAdmin = canAdmin,
+                        )
                     }
                 }
             }
@@ -282,6 +297,7 @@ private fun ProductTile(
     product: Product,
     onPick: (String) -> Unit,
     onMarkUnavailable: (Product) -> Unit,
+    canAdmin: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     MittCard(modifier = modifier.fillMaxWidth()) {
@@ -325,8 +341,9 @@ private fun ProductTile(
                 MittStockPill(available = product.available)
             }
             // Trash marks the product unavailable (PATCH available=false);
-            // only on sellable rows.
-            if (product.available) {
+            // only on sellable rows, and only where the phone owns the
+            // catalog (HUB mode edits products on the PC).
+            if (product.available && canAdmin) {
                 TextButton(
                     onClick = { onMarkUnavailable(product) },
                     modifier = Modifier

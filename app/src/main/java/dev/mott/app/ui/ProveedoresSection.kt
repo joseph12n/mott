@@ -53,6 +53,8 @@ fun ProveedoresSection(modifier: Modifier = Modifier) {
     // Supplier CRUD seam from the container: the phone's own data in MOBILE,
     // the hub's in HUB.
     val repo = remember(services) { services.suppliers() }
+    // Suppliers are catalog administration: the PC owns the CRUD in HUB mode.
+    val canAdmin = services.capabilities().canAdminCatalog
     var suppliersState by remember { mutableStateOf<LoadState<List<Supplier>>>(LoadState.Loading) }
     var selIdRaw by remember { mutableStateOf<String?>(null) }
     var addName by remember { mutableStateOf("") }
@@ -220,6 +222,9 @@ fun ProveedoresSection(modifier: Modifier = Modifier) {
             first = {
                 MittCard(modifier = Modifier.fillMaxWidth()) {
                     Text(text = "Agregar proveedor", style = MaterialTheme.typography.titleLarge)
+                if (!canAdmin) {
+                    HubAdminNotice()
+                }
                     Spacer(modifier = Modifier.height(8.dp))
                     val nameField: @Composable (Modifier) -> Unit = { fieldModifier ->
                         OutlinedTextField(
@@ -270,7 +275,7 @@ fun ProveedoresSection(modifier: Modifier = Modifier) {
                         label = "AGREGAR PROVEEDOR",
                         onClick = ::addSupplier,
                         modifier = Modifier.heightIn(min = 48.dp),
-                        enabled = addName.isNotBlank(),
+                        enabled = canAdmin && addName.isNotBlank(),
                     )
                     val outcome = adminError ?: adminNote
                     if (outcome != null) {
@@ -370,12 +375,17 @@ fun ProveedoresSection(modifier: Modifier = Modifier) {
                                     }
                                 }
                             }
-                            Spacer(modifier = Modifier.height(12.dp))
-                            MittDangerButton(
-                                label = if (deleteArm) "CONFIRMAR ELIMINACIÓN" else "ELIMINAR",
-                                onClick = { deleteSupplier(sup) },
-                                modifier = Modifier.heightIn(min = 48.dp),
-                            )
+                            if (canAdmin) {
+                                Spacer(modifier = Modifier.height(12.dp))
+                                MittDangerButton(
+                                    label = if (deleteArm) "CONFIRMAR ELIMINACIÓN" else "ELIMINAR",
+                                    onClick = { deleteSupplier(sup) },
+                                    modifier = Modifier.heightIn(min = 48.dp),
+                                )
+                            } else {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                HubAdminNotice()
+                            }
                             Spacer(modifier = Modifier.height(12.dp))
                             OutlinedTextField(
                                 value = editName,
@@ -404,7 +414,8 @@ fun ProveedoresSection(modifier: Modifier = Modifier) {
                                 label = "GUARDAR CAMBIOS",
                                 onClick = { saveSupplier(sup) },
                                 modifier = Modifier.heightIn(min = 48.dp),
-                                enabled = supplierDirty(sup, editName, editPhone, editNote) &&
+                                enabled = canAdmin &&
+                                    supplierDirty(sup, editName, editPhone, editNote) &&
                                     editName.trim().isNotEmpty(),
                             )
                         }

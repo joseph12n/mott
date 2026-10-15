@@ -140,6 +140,8 @@ fun PersonalizarSection(
     // Branding can be edited when the mode owns its catalog (MOBILE) or a
     // hub is paired (HUB).
     val canAdmin = services.capabilities().canAdminCatalog || pairingStore.get() != null
+    // The brand is part of the catalog: in HUB mode it is edited on the PC.
+    val canEditBrand = services.capabilities().canAdminCatalog
 
     // Staging form, rebased onto the live brand after every save (PC
     // useEffect parity): edits never touch the hub until Guardar.
@@ -166,7 +168,7 @@ fun PersonalizarSection(
     val draft = stagedBrandingDraft(base, shopName, primary, accent, logoMode, logoDataUrl)
     val invalid = validateBrandingDraft(base, shopName, primary, accent)
     val logoInvalid = if (logoMode == LogoMode.SET) validateLogoDataUrl(logoDataUrl) else null
-    val canSave = canAdmin && draft.isDirty && invalid == null && logoInvalid == null && !saving
+    val canSave = canEditBrand && draft.isDirty && invalid == null && logoInvalid == null && !saving
 
     // Image picker through the system gallery (ActivityResult GetContent,
     // same launcher family as the QR permission flow in PairingScreen).
@@ -336,12 +338,19 @@ fun PersonalizarSection(
             OfflineBanner()
             Spacer(modifier = Modifier.height(4.dp))
         }
-        if (!canAdmin) {
+        if (!canEditBrand) {
             MittCard(modifier = Modifier.fillMaxWidth()) {
-                Text(text = "Se necesita conexión", style = MaterialTheme.typography.titleLarge)
+                Text(
+                    text = if (canAdmin) "Se administra desde la PC" else "Se necesita conexión",
+                    style = MaterialTheme.typography.titleLarge,
+                )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Guardá un token en Conexión para personalizar la marca.",
+                    text = if (canAdmin) {
+                        "La marca del bar se edita en la PC; acá ves los colores y el logo vigentes."
+                    } else {
+                        "Guardá un token en Conexión para personalizar la marca."
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -522,7 +531,7 @@ fun PersonalizarSection(
                     label = if (resetArm) "CONFIRMAR RESTABLECIDO" else "RESTABLECER",
                     onClick = ::reset,
                     modifier = Modifier.heightIn(min = 48.dp),
-                    enabled = canAdmin && !saving,
+                    enabled = canEditBrand && !saving,
                 )
                 val outcome = error ?: note
                 if (outcome != null) {

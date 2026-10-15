@@ -1,5 +1,6 @@
 package dev.mott.app.ui
 
+import dev.mott.app.data.AppMode
 import dev.mott.app.data.Sale
 import dev.mott.app.data.TodayResult
 import dev.mott.app.domain.Tab
@@ -45,6 +46,16 @@ fun connectionPillState(paired: Boolean): ConnectionPillState =
     } else {
         ConnectionPillState(text = "SIN CONEXIÓN", live = false)
     }
+
+// Mode-aware shell pill. Standalone mode is its own backend, so it never
+// reads as offline (and never pulses: there is nothing to connect to); HUB
+// keeps the live pulse only while a hub is paired; UNSET points at the mode
+// chooser.
+fun connectionPillStateFor(mode: AppMode, paired: Boolean): ConnectionPillState = when (mode) {
+    AppMode.MOBILE -> ConnectionPillState(text = "SOLO MÓVIL", live = false)
+    AppMode.HUB -> connectionPillState(paired = paired)
+    AppMode.UNSET -> ConnectionPillState(text = "SIN CONFIGURAR", live = false)
+}
 
 // Pairing gate: unpaired devices land on Conexión (the pairing entry,
 // QR-first kept); paired devices land on Panel.

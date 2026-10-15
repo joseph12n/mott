@@ -22,9 +22,12 @@ import dev.mott.app.data.refreshBrandIfOnline
 import dev.mott.app.ui.AdaptiveShell
 import androidx.compose.runtime.CompositionLocalProvider
 import dev.mott.app.ui.AppContainer
+import dev.mott.app.data.AppMode
 import dev.mott.app.ui.LocalAppServices
 import dev.mott.app.ui.CatalogSection
 import dev.mott.app.ui.ConnectionSection
+import dev.mott.app.ui.ModeChoiceScreen
+import dev.mott.app.ui.connectionPillStateFor
 import dev.mott.app.ui.ExpensesSection
 import dev.mott.app.ui.MesasSection
 import dev.mott.app.ui.PanelSection
@@ -59,6 +62,9 @@ class MainActivity : ComponentActivity() {
             var brand by remember { mutableStateOf(brandStore.get()) }
             var themeMode by remember { mutableStateOf(themeModeStore.get()) }
             var pairing by remember { mutableStateOf(container.pairingStore.get()) }
+            // Mode is state: the chooser, the pairing gate and the shell pill
+            // all follow it.
+            var appMode by remember { mutableStateOf(container.mode()) }
             val scope = rememberCoroutineScope()
             // Brand refresh on start when online; offline keeps the cached
             // brand (or token defaults) silently.
@@ -70,7 +76,21 @@ class MainActivity : ComponentActivity() {
             MottTheme(mode = themeMode, brand = brand) {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val currentPairing = pairing
-                    if (currentPairing == null) {
+                    val currentMode = appMode
+                    // First run lands on the mode chooser: the PC is optional
+                    // now, so the app asks which backend this phone runs on.
+                    // HUB without a pairing goes to the QR screen; MOBILE
+                    // needs no pairing at all.
+                    if (currentMode == AppMode.UNSET) {
+                        ModeChoiceScreen(
+                            onChoose = { chosen ->
+                                container.appModeStore.save(chosen)
+                                appMode = chosen
+                            },
+                        )
+                        return@Surface
+                    }
+                    if (currentMode == AppMode.HUB && currentPairing == null) {
                         PairingScreen(
                             store = container.pairingStore,
                             onPaired = {
@@ -83,6 +103,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                                 pairing = container.pairingStore.get()
+                                appMode = container.mode()
                             },
                         )
                         return@Surface
@@ -117,7 +138,7 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                         mesasOpenCount = orderState.tables.count { it.occupied },
-                        connected = currentPairing != null,
+                        pill = connectionPillStateFor(currentMode, currentPairing != null),
                         themeMode = themeMode,
                         onRefresh = {
                             refreshTick++
@@ -212,10 +233,24 @@ class MainActivity : ComponentActivity() {
                             composable(dev.mott.app.ui.AppSection.CONEXION.route) {
                                 ConnectionSection(
                                     pairing = currentPairing,
+                                    mode = currentMode,
                                     shopName = brand?.shopName,
                                     onUnpair = {
+                                        // Unpairing hands the decision back to
+                                        // the user: the chooser decides between
+                                        // a new QR and standalone mode.
                                         container.pairingStore.clear()
                                         pairing = null
+                                        container.appModeStore.save(AppMode.UNSET)
+                                        appMode = AppMode.UNSET
+                                    },
+                                    onUseMobileMode = {
+                                        container.appModeStore.save(AppMode.MOBILE)
+                                        appMode = AppMode.MOBILE
+                                    },
+                                    onUseHubMode = {
+                                        container.appModeStore.save(AppMode.HUB)
+                                        appMode = AppMode.HUB
                                     },
                                     showHeader = false,
                                     kpis = dev.mott.app.ui.ConnectionKpis(

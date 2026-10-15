@@ -1,6 +1,10 @@
 package dev.mott.app.ui
 
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Modifier
 import dev.mott.app.data.AppMode
 import dev.mott.app.data.Capabilities
 import dev.mott.app.data.SalesRepo
@@ -59,3 +63,16 @@ object OfflineAppServices : AppServices {
 }
 
 val LocalAppServices = staticCompositionLocalOf<AppServices> { OfflineAppServices }
+
+// One-line notice for actions the PC owns in HUB mode: the phone keeps
+// operating (orders, tabs, expenses), but catalog administration lives on
+// the server.
+@Composable
+fun HubAdminNotice(modifier: Modifier = Modifier) {
+    Text(
+        text = "Se administra desde la PC",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier,
+    )
+}

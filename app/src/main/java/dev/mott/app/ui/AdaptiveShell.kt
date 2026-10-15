@@ -56,7 +56,7 @@ fun AdaptiveShell(
     selected: AppSection,
     onSelect: (AppSection) -> Unit,
     mesasOpenCount: Int,
-    connected: Boolean,
+    pill: ConnectionPillState,
     themeMode: ThemeMode,
     onRefresh: () -> Unit,
     onThemeModeChange: (ThemeMode) -> Unit,
@@ -74,7 +74,7 @@ fun AdaptiveShell(
             NavLayout.BOTTOM_STRIP -> Column(modifier = Modifier.fillMaxSize()) {
                 CompactHeader(
                     section = selected,
-                    connected = connected,
+                    pill = pill,
                     onRefresh = onRefresh,
                 )
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
@@ -92,7 +92,7 @@ fun AdaptiveShell(
                     selected = selected,
                     onSelect = onSelect,
                     mesasOpenCount = mesasOpenCount,
-                    connected = connected,
+                    pill = pill,
                     themeMode = themeMode,
                     onRefresh = onRefresh,
                     onThemeModeChange = onThemeModeChange,
@@ -122,11 +122,10 @@ fun AdaptiveShell(
 @Composable
 private fun CompactHeader(
     section: AppSection,
-    connected: Boolean,
+    pill: ConnectionPillState,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val pill = connectionPillState(paired = connected)
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
@@ -194,14 +193,13 @@ private fun SideRail(
     selected: AppSection,
     onSelect: (AppSection) -> Unit,
     mesasOpenCount: Int,
-    connected: Boolean,
+    pill: ConnectionPillState,
     themeMode: ThemeMode,
     onRefresh: () -> Unit,
     onThemeModeChange: (ThemeMode) -> Unit,
     shopName: String?,
 ) {
     val name = shopDisplayName(shopName)
-    val pill = connectionPillState(paired = connected)
     Column(
         modifier = Modifier
             .width(RailWidth)

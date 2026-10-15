@@ -25,7 +25,9 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.mott.app.data.AppMode
 import dev.mott.app.data.Pairing
+import dev.mott.app.data.capabilitiesFor
 
 // Conexión section for a paired device, mobile side of the PC pairing: the
 // current pairing state (hub URL with copy action, bar name), the named
@@ -40,10 +42,15 @@ import dev.mott.app.data.Pairing
 // nothing honest to wire it to on mobile.
 @Composable
 fun ConnectionSection(
-    pairing: Pairing,
+    pairing: Pairing?,
     modifier: Modifier = Modifier,
     shopName: String? = null,
     onUnpair: () -> Unit = {},
+    // Which backend this phone runs on, and the one-tap switch between the
+    // two modes (the chooser's rule, changeable any time).
+    mode: AppMode = AppMode.HUB,
+    onUseMobileMode: () -> Unit = {},
+    onUseHubMode: () -> Unit = {},
     // T3 shell: the ShellHeader owns the title/subtitle.
     showHeader: Boolean = true,
     // Named failure to surface, if the host observed one (null = no known
@@ -73,6 +80,42 @@ fun ConnectionSection(
                 sub = "App enlazada con el servidor del bar",
             )
         }
+        // Mode card: what this phone is running on right now.
+        MittCard(modifier = Modifier.fillMaxWidth()) {
+            Text(text = "Modo", style = MaterialTheme.typography.titleLarge)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = capabilitiesFor(mode).label,
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = if (mode == AppMode.MOBILE) {
+                    "El teléfono funciona solo: guarda mesas, productos, " +
+                        "proveedores y marca, sin PC."
+                } else {
+                    "El servidor del bar guarda el catálogo; el teléfono " +
+                        "opera el servicio."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            if (mode == AppMode.MOBILE) {
+                MittSecondaryButton(
+                    label = "USAR LA PC DEL BAR (QR)",
+                    onClick = onUseHubMode,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                )
+            } else {
+                MittSecondaryButton(
+                    label = "CONTINUAR SOLO EN EL MÓVIL",
+                    onClick = onUseMobileMode,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                )
+            }
+        }
+        if (mode == AppMode.HUB && pairing != null) {
         TwoPane(
             first = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -95,7 +138,7 @@ fun ConnectionSection(
                         Spacer(modifier = Modifier.height(4.dp))
                     }
                     Text(
-                        text = pairing.baseUrl,
+                        text = pairing?.baseUrl ?: "Sin servidor enlazado",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2,
@@ -105,7 +148,7 @@ fun ConnectionSection(
                     MittSecondaryButton(
                         label = connectionCopyLabel(copied),
                         onClick = {
-                            clipboard.setText(AnnotatedString(pairing.baseUrl))
+                            pairing?.baseUrl?.let { clipboard.setText(AnnotatedString(it)) }
                             copied = true
                         },
                         modifier = Modifier.heightIn(min = 48.dp),
@@ -147,7 +190,9 @@ fun ConnectionSection(
             }
             },
         )
+        }
         ConnectionKpiCards(kpis = kpis, inline = inlineFormFor(sectionWidthDp - 32))
+        if (mode == AppMode.HUB && pairing != null) {
         MittCard(modifier = Modifier.fillMaxWidth()) {
             Text(text = "Dispositivo", style = MaterialTheme.typography.titleLarge)
             Spacer(modifier = Modifier.height(4.dp))
@@ -162,6 +207,7 @@ fun ConnectionSection(
                 onClick = onUnpair,
                 modifier = Modifier.heightIn(min = 48.dp),
             )
+        }
         }
     }
     }

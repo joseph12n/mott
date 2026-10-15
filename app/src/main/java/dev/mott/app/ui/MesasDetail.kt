@@ -53,6 +53,7 @@ fun TableDetailPane(
     onBack: () -> Unit,
     onOpenTable: () -> Unit,
     onDeleteTable: () -> Unit,
+    canAdmin: Boolean = true,
     onClosed: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
     outcome: @Composable () -> Unit = {},
@@ -73,16 +74,18 @@ fun TableDetailPane(
                     item {
                         MittPrimaryButton(label = "ABRIR MESA", onClick = onOpenTable)
                     }
-                    item {
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    }
-                    item {
-                        TwoTapAction(
-                            label = "Eliminar mesa",
-                            armedLabel = "CONFIRMAR ELIMINAR",
-                            danger = false,
-                            onConfirm = onDeleteTable,
-                        )
+                    if (canAdmin) {
+                        item {
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        }
+                        item {
+                            TwoTapAction(
+                                label = "Eliminar mesa",
+                                armedLabel = "CONFIRMAR ELIMINAR",
+                                danger = false,
+                                onConfirm = onDeleteTable,
+                            )
+                        }
                     }
                 }
                 if (tab != null && tab.lines.isNotEmpty()) {

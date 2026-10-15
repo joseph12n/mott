@@ -2,7 +2,9 @@ package dev.mott.app
 
 import dev.mott.app.ui.AppSection
 import dev.mott.app.ui.LoadFailureReason
+import dev.mott.app.data.AppMode
 import dev.mott.app.ui.connectionPillState
+import dev.mott.app.ui.connectionPillStateFor
 import dev.mott.app.ui.mesasBadgeText
 import dev.mott.app.ui.message
 import dev.mott.app.ui.nextThemeMode
@@ -139,5 +141,14 @@ class ShellTest {
         assertEquals("mitt", shopDisplayName(""))
         assertEquals("mitt", shopDisplayName("   "))
         assertEquals("Bar Sol", shopDisplayName("  Bar Sol "))
+    }
+    @Test
+    fun `pill follows the mode`() {
+        assertEquals("SOLO MÓVIL", connectionPillStateFor(AppMode.MOBILE, paired = false).text)
+        assertFalse(connectionPillStateFor(AppMode.MOBILE, paired = false).live)
+        assertEquals("CONECTADO", connectionPillStateFor(AppMode.HUB, paired = true).text)
+        assertTrue(connectionPillStateFor(AppMode.HUB, paired = true).live)
+        assertEquals("SIN CONEXIÓN", connectionPillStateFor(AppMode.HUB, paired = false).text)
+        assertEquals("SIN CONFIGURAR", connectionPillStateFor(AppMode.UNSET, paired = false).text)
     }
 }

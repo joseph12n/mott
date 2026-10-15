@@ -91,6 +91,9 @@ fun MesasSection(
     // Reachability comes from the services: always true in MOBILE mode,
     // where the backend is the phone itself.
     val services = LocalAppServices.current
+    // Creating and deleting tables is catalog administration: the PC owns it
+    // in HUB mode, the phone in MOBILE.
+    val canAdmin = services.capabilities().canAdminCatalog
 
     fun refreshTabs() {
         scope.launch { tabsState = loadOpenTabsState(salesRepo) }
@@ -266,6 +269,7 @@ fun MesasSection(
                         refreshTabs()
                         viewModel.startNewOrder()
                     },
+                    canAdmin = canAdmin,
                     modifier = detailModifier,
                     outcome = if (pane == MesasPane.DETAIL) outcome else ({}),
                 )
@@ -291,6 +295,7 @@ fun MesasSection(
                 onRePair = onNavigateConnection,
                 onQuitPending = onConsumePending,
                 onSelect = ::selectTable,
+                canAdmin = canAdmin,
                 outcome = if (pane == MesasPane.DETAIL) ({}) else outcome,
                 modifier = listModifier,
             )
@@ -329,6 +334,7 @@ private fun TableListPane(
     onRePair: () -> Unit,
     onQuitPending: () -> Unit,
     onSelect: (TableRef) -> Unit,
+    canAdmin: Boolean = true,
     outcome: @Composable () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -385,13 +391,17 @@ private fun TableListPane(
             }
         }
         item(span = fullSpan) { outcome() }
-        item(span = fullSpan) {
-            NewTableRow(
-                widthDp = widthDp,
-                value = newLabel,
-                onValueChange = onNewLabelChange,
-                onCreate = onCreate,
-            )
+        if (canAdmin) {
+            item(span = fullSpan) {
+                NewTableRow(
+                    widthDp = widthDp,
+                    value = newLabel,
+                    onValueChange = onNewLabelChange,
+                    onCreate = onCreate,
+                )
+            }
+        } else {
+            item(span = fullSpan) { HubAdminNotice() }
         }
         if (tables.isEmpty()) {
             item(span = fullSpan) {
