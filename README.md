@@ -3,12 +3,15 @@
 Native Android app for taking bar orders: pick a table, add products, get the bill automatically.
 Offline-first against the [`mitt`](../mitt) PC hub — keep taking orders with no Wi-Fi, sync later.
 
-> **Status:** unified sections complete and build-verified (126 unit tests green, debug APK builds).
-> Not field-tested in a real bar yet — see [Limitations](#limitations).
+> **Status:** v0.3.0 — the phone can run the bar on its own (standalone mode) or as a
+> client of the PC hub; responsive shell, dialog-free sections, build-verified
+> (368 unit tests green, debug APK builds). Not field-tested in a real bar yet —
+> see [Limitations](#limitations).
 
 ## Contents
 
 - [How it works](#how-it-works)
+- [Two ways to run](#two-ways-to-run)
 - [Quick start](#quick-start)
 - [Pairing with the hub](#pairing-with-the-hub)
 - [Order flow](#sections)
@@ -39,6 +42,24 @@ flowchart LR
    The snapshot is cached on-device, so the flow keeps working offline.
 3. **Take orders** in Mesas: pick a table, add products in its sheet, ANOTAR. Totals compute on-device, instantly.
 4. Every order lands in an **outbox queue**; a FIFO sync drains it to the hub when there is connectivity.
+
+## Two ways to run
+
+The PC is optional. On first run the app asks which backend this phone runs on, and the
+choice can be changed any time from Conexión:
+
+| Mode | Who owns the catalog | What the phone does |
+|------|----------------------|---------------------|
+| Solo en el móvil (MOBILE) | the phone itself (`state.json` + `sales.jsonl` under `filesDir`) | everything: tables, products, suppliers, brand, orders, closing tabs, expenses — no PC and no Wi-Fi needed |
+| Con la PC (HUB) | the `mitt` hub over the LAN | operates: pick a table, take orders, close tabs, log expenses. Catalog work (tables, products, suppliers, brand) happens on the PC, and the phone hides those controls behind a "Se administra desde la PC" note |
+
+Every repository talks to exactly ONE `MittApi`, chosen by mode
+(`ui/AppContainer.kt` + `data/standalone/ApiSelector.kt`). In MOBILE that api is
+`LocalMittApi`, a pure-Kotlin implementation of the same interface that replicates the
+hub's rules — 409 `table_occupied`, 422 validation, idempotent tab open, same-product
+line merge with the price snapshot, close → sale — so no section branches on mode.
+Installs that paired before modes existed keep behaving as HUB; no data is migrated
+between modes, so phone-local data and hub data stay separate.
 
 ## Quick start
 
@@ -152,7 +173,8 @@ empty when nothing was ever loaded); HTTP errors throw typed `ApiException`, nev
 | `…/domain/`                    | Offline rules: product, order line, tab, expense    |
 | `…/data/local/`                | Room cache + outbox queue (`PendingOp`)            |
 | `…/data/remote/`               | Retrofit client + DTOs matching the mitt wire (`BrandingResponse` for hub brand)|
-| `…/data/`                      | `PairingStore`, `PairingCode`, `SyncManager`, `BrandStore`, `BrandRefresh`, `CatalogCache`, `ApiOrderCatalog`|
+| `…/data/`                     | `PairingStore`, `PairingCode`, `SyncManager`, `BrandStore`, `BrandRefresh`, `CatalogCache`, `ApiOrderCatalog`, `AppMode` |
+| `…/data/standalone/`           | Standalone mode: `LocalMittApi` (hub-parity api), `LocalStore` + `JsonFileLocalStore` (state.json / sales.jsonl), `ApiSelector` |
 | `…/ui/`                        | Seven sections, `AdaptiveShell` (nav strip / side rail), shared `MittUi` + `ResponsiveLayout` vocabulary |
 | `…/ui/order/`                  | Order state: ViewModel + shared chrome (headers, banners, states) |
 | `…/ui/pair/`                   | Pairing screen (scan + paste)                       |
@@ -215,6 +237,9 @@ Open source — adjust it to your bar's needs. Conventions:
 - No secrets in the repo: no `local.properties`, no keystores, no real tokens.
 
 ## Limitations
+
+- Standalone mode is unit-tested (hub-parity api, file store round trips, mode selection)
+  but has not been exercised on a device or emulator yet.
 
 - QR scanning, camera permission flow, and live-hub pairing are unit-tested only —
   no device/emulator pass yet.
