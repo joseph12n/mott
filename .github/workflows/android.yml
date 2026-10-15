@@ -28,8 +28,9 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - uses: android-actions/setup-android@v3
-
+      # The ubuntu runner image already ships the Android SDK (ANDROID_HOME is
+      # preset); the release build only needs the SDK plus the build tools it
+      # pins, so no extra SDK setup step is required.
       - name: Install dependencies
         run: npm install --legacy-peer-deps --no-audit --no-fund
 
