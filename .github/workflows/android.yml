@@ -54,7 +54,8 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: mott-apk-${{ github.ref_name }}
+          # Artifact names reject slashes, so the ref is flattened first.
+          name: mott-apk-${{ github.run_number }}
           path: dist/*.apk
 
       - name: Publish to a GitHub release (tags only)
