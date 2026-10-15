@@ -38,10 +38,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.mott.app.data.ApiException
-import dev.mott.app.data.PairingStore
-import dev.mott.app.data.remote.ApiClient
 import dev.mott.app.domain.Product
-import dev.mott.app.net.NetStatus
 import dev.mott.app.ui.order.OfflineBanner
 import dev.mott.app.ui.order.OrderEmptyState
 import dev.mott.app.ui.order.OrderScreenHeader
@@ -75,18 +72,10 @@ fun CatalogSection(
     onNavigateConnection: () -> Unit = {},
 ) {
     val context = LocalContext.current
-    val appContext = context.applicationContext
-    val admin = catalogAdmin ?: remember(appContext) {
-        val pairingStore = PairingStore(appContext)
-        CatalogAdminRepo(
-            apiProvider = {
-                pairingStore.get()?.let { pairing ->
-                    ApiClient.build(pairing.baseUrl, pairing.token, logger = false)
-                }
-            },
-            isOnline = { NetStatus.isOnline(appContext) },
-        )
-    }
+    val services = LocalAppServices.current
+    // Admin seam: production takes the container's repo (local in MOBILE,
+    // the hub in HUB); tests and previews inject their own.
+    val admin = catalogAdmin ?: remember(services) { services.catalogAdmin() }
     var newName by remember { mutableStateOf("") }
     var newPrice by remember { mutableStateOf("") }
     var adminNote by remember { mutableStateOf<String?>(null) }
@@ -120,7 +109,7 @@ fun CatalogSection(
 
     // Offline pre-flight before any doomed request goes out.
     fun checkOnline(): Boolean {
-        if (NetStatus.isOnline(context)) return true
+        if (services.reachable()) return true
         adminError = "Sin conexión. Revisá el Wi-Fi del bar e intentá de nuevo."
         return false
     }

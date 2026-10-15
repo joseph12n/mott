@@ -41,7 +41,6 @@ import androidx.compose.ui.unit.dp
 import dev.mott.app.data.ApiException
 import dev.mott.app.data.SalesRepo
 import dev.mott.app.domain.Tab
-import dev.mott.app.net.NetStatus
 import dev.mott.app.ui.order.OfflineBanner
 import dev.mott.app.ui.order.OrderScreenHeader
 import dev.mott.app.ui.order.OrderViewModel
@@ -89,6 +88,9 @@ fun MesasSection(
     var adminRetry by remember { mutableStateOf<(() -> Unit)?>(null) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    // Reachability comes from the services: always true in MOBILE mode,
+    // where the backend is the phone itself.
+    val services = LocalAppServices.current
 
     fun refreshTabs() {
         scope.launch { tabsState = loadOpenTabsState(salesRepo) }
@@ -128,7 +130,7 @@ fun MesasSection(
 
     // Offline pre-flight before any doomed request goes out.
     fun checkOnline(): Boolean {
-        if (NetStatus.isOnline(context)) return true
+        if (services.reachable()) return true
         adminError = "Sin conexión. Revisá el Wi-Fi del bar e intentá de nuevo."
         return false
     }

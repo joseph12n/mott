@@ -28,11 +28,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.mott.app.data.ApiException
-import dev.mott.app.data.PairingStore
 import dev.mott.app.data.SalesRepo
 import dev.mott.app.data.Supplier
 import dev.mott.app.data.remote.ApiClient
-import dev.mott.app.net.NetStatus
 import dev.mott.app.ui.order.OfflineBanner
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -51,19 +49,10 @@ import kotlinx.coroutines.launch
 fun ProveedoresSection(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val appContext = context.applicationContext
-    // Self-sufficient repo from the saved pairing (CatalogSection
-    // precedent): no MainActivity wiring change needed.
-    val repo = remember(appContext) {
-        val pairingStore = PairingStore(appContext)
-        SalesRepo(
-            apiProvider = {
-                pairingStore.get()?.let { pairing ->
-                    ApiClient.build(pairing.baseUrl, pairing.token, logger = false)
-                }
-            },
-            isOnline = { NetStatus.isOnline(appContext) },
-        )
-    }
+    val services = LocalAppServices.current
+    // Supplier CRUD seam from the container: the phone's own data in MOBILE,
+    // the hub's in HUB.
+    val repo = remember(services) { services.suppliers() }
     var suppliersState by remember { mutableStateOf<LoadState<List<Supplier>>>(LoadState.Loading) }
     var selIdRaw by remember { mutableStateOf<String?>(null) }
     var addName by remember { mutableStateOf("") }
@@ -117,7 +106,7 @@ fun ProveedoresSection(modifier: Modifier = Modifier) {
 
     // Offline pre-flight before any doomed request goes out.
     fun checkOnline(): Boolean {
-        if (NetStatus.isOnline(context)) return true
+        if (services.reachable()) return true
         adminError = "Sin conexión. Revisá el Wi-Fi del bar e intentá de nuevo."
         return false
     }
@@ -217,7 +206,7 @@ fun ProveedoresSection(modifier: Modifier = Modifier) {
     ) {
         // Shell-owned title: only the offline banner plus the count line
         // live here (the shell subtitle already names the section).
-        if (!NetStatus.isOnline(context)) {
+        if (!services.reachable()) {
             OfflineBanner()
             Spacer(modifier = Modifier.height(4.dp))
         }

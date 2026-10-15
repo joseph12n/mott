@@ -20,7 +20,9 @@ import androidx.navigation.compose.rememberNavController
 import dev.mott.app.data.BrandStore
 import dev.mott.app.data.refreshBrandIfOnline
 import dev.mott.app.ui.AdaptiveShell
+import androidx.compose.runtime.CompositionLocalProvider
 import dev.mott.app.ui.AppContainer
+import dev.mott.app.ui.LocalAppServices
 import dev.mott.app.ui.CatalogSection
 import dev.mott.app.ui.ConnectionSection
 import dev.mott.app.ui.ExpensesSection
@@ -129,6 +131,10 @@ class MainActivity : ComponentActivity() {
                         },
                         shopName = brand?.shopName,
                     ) { contentModifier ->
+                        // ONE provider for every section: they read mode,
+                        // capabilities and reachability from the container
+                        // instead of building their own clients.
+                        CompositionLocalProvider(LocalAppServices provides container) {
                         NavHost(
                             navController = navController,
                             startDestination = dev.mott.app.ui.AppSection.PANEL.route,
@@ -224,6 +230,7 @@ class MainActivity : ComponentActivity() {
                                     onThemeModeChanged = { themeMode = themeModeStore.get() },
                                 )
                             }
+                        }
                         }
                     }
                 }

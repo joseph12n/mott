@@ -50,8 +50,6 @@ import dev.mott.app.data.BrandStore
 import dev.mott.app.data.PairingStore
 import dev.mott.app.data.parseHex6
 import dev.mott.app.data.refreshBrandIfOnline
-import dev.mott.app.data.remote.ApiClient
-import dev.mott.app.net.NetStatus
 import dev.mott.app.ui.order.OfflineBanner
 import dev.mott.app.ui.theme.ThemeMode
 import dev.mott.app.ui.theme.ThemeModeStore
@@ -96,9 +94,10 @@ fun PersonalizarSection(
     val brandStore = remember(appContext) { BrandStore(appContext) }
     val themeModeStore = remember(appContext) { ThemeModeStore(appContext) }
     val pairingStore = remember(appContext) { PairingStore(appContext) }
-    fun api() = pairingStore.get()?.let { pairing ->
-        ApiClient.build(pairing.baseUrl, pairing.token, logger = false)
-    }
+    // Branding backend for this mode: the phone's own store in MOBILE (no
+    // pairing, no network), the paired hub in HUB.
+    val services = LocalAppServices.current
+    fun api() = services.brandingApi()
     var brandState by remember { mutableStateOf<LoadState<Brand>>(LoadState.Loading) }
     var themeMode by remember { mutableStateOf(themeModeStore.get()) }
     var saving by remember { mutableStateOf(false) }
@@ -116,7 +115,18 @@ fun PersonalizarSection(
             brandState = try {
                 // Public brand pull when online; offline keeps the cached
                 // brand (or token defaults) silently, same as app start.
-                refreshBrandIfOnline(appContext, pairingStore, brandStore)
+                val localApi = api()
+                if (services.mode() == dev.mott.app.data.AppMode.MOBILE && localApi != null) {
+                    // Standalone: the brand lives on the phone, so pull it
+                    // from the local api (no network, no pairing).
+                    runCatching { localApi.getBranding() }
+                        .getOrNull()
+                        ?.takeIf { it.isSuccessful }
+                        ?.body()
+                        ?.let { brandStore.save(it.toBrand()) }
+                } else {
+                    refreshBrandIfOnline(appContext, pairingStore, brandStore)
+                }
                 LoadState.Ready(brandStore.getOrDefault())
             } catch (e: CancellationException) {
                 throw e
@@ -127,7 +137,9 @@ fun PersonalizarSection(
     }
     LaunchedEffect(Unit) { refresh() }
     val base = (brandState as? LoadState.Ready)?.data ?: brandStore.getOrDefault()
-    val paired = pairingStore.get() != null
+    // Branding can be edited when the mode owns its catalog (MOBILE) or a
+    // hub is paired (HUB).
+    val canAdmin = services.capabilities().canAdminCatalog || pairingStore.get() != null
 
     // Staging form, rebased onto the live brand after every save (PC
     // useEffect parity): edits never touch the hub until Guardar.
@@ -140,16 +152,21 @@ fun PersonalizarSection(
 
     // Current hub logo for the preview tile (public raw bytes, cached
     // silently on any failure — the form never depends on it).
-    LaunchedEffect(base.updatedAt, paired) {
+    LaunchedEffect(base.updatedAt, canAdmin) {
         remoteLogo = null
-        val pairing = pairingStore.get() ?: return@LaunchedEffect
-        remoteLogo = runCatching { fetchLogoBitmap(pairing.baseUrl) }.getOrNull()
+        if (services.mode() == dev.mott.app.data.AppMode.MOBILE) {
+            // Standalone: the staged logo is stored as a data URL.
+            remoteLogo = bitmapFromDataUrl(services.localLogoDataUrl())
+        } else {
+            val pairing = pairingStore.get() ?: return@LaunchedEffect
+            remoteLogo = runCatching { fetchLogoBitmap(pairing.baseUrl) }.getOrNull()
+        }
     }
 
     val draft = stagedBrandingDraft(base, shopName, primary, accent, logoMode, logoDataUrl)
     val invalid = validateBrandingDraft(base, shopName, primary, accent)
     val logoInvalid = if (logoMode == LogoMode.SET) validateLogoDataUrl(logoDataUrl) else null
-    val canSave = paired && draft.isDirty && invalid == null && logoInvalid == null && !saving
+    val canSave = canAdmin && draft.isDirty && invalid == null && logoInvalid == null && !saving
 
     // Image picker through the system gallery (ActivityResult GetContent,
     // same launcher family as the QR permission flow in PairingScreen).
@@ -212,7 +229,7 @@ fun PersonalizarSection(
                 return
             }
         }
-        if (!NetStatus.isOnline(context)) {
+        if (!services.reachable()) {
             error = "Sin conexión. Revisá el Wi-Fi del bar e intentá de nuevo."
             return
         }
@@ -249,7 +266,7 @@ fun PersonalizarSection(
             resetArm = true
             return
         }
-        if (!NetStatus.isOnline(context)) {
+        if (!services.reachable()) {
             error = "Sin conexión. Revisá el Wi-Fi del bar e intentá de nuevo."
             resetArm = false
             return
@@ -315,11 +332,11 @@ fun PersonalizarSection(
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
     ) {
-        if (!NetStatus.isOnline(context)) {
+        if (!services.reachable()) {
             OfflineBanner()
             Spacer(modifier = Modifier.height(4.dp))
         }
-        if (!paired) {
+        if (!canAdmin) {
             MittCard(modifier = Modifier.fillMaxWidth()) {
                 Text(text = "Se necesita conexión", style = MaterialTheme.typography.titleLarge)
                 Spacer(modifier = Modifier.height(4.dp))
@@ -505,7 +522,7 @@ fun PersonalizarSection(
                     label = if (resetArm) "CONFIRMAR RESTABLECIDO" else "RESTABLECER",
                     onClick = ::reset,
                     modifier = Modifier.heightIn(min = 48.dp),
-                    enabled = paired && !saving,
+                    enabled = canAdmin && !saving,
                 )
                 val outcome = error ?: note
                 if (outcome != null) {
@@ -714,6 +731,19 @@ private fun readLogoDataUrl(context: Context, uri: Uri): String {
 // past 512px so a big hub logo never blows the tile budget. Null on any
 // failure (no logo stored, offline, bad payload): the form never depends
 // on it, so failures stay silent by design.
+// Standalone logo: decodes the data URL stored by MOBILE mode for the
+// preview tile. A blank or malformed payload reads as "no logo" (the tile
+// shows its empty state), never throws.
+private fun bitmapFromDataUrl(dataUrl: String?): Bitmap? {
+    if (dataUrl.isNullOrBlank()) return null
+    val comma = dataUrl.indexOf(',')
+    if (comma <= 0) return null
+    val bytes = runCatching {
+        android.util.Base64.decode(dataUrl.substring(comma + 1), android.util.Base64.DEFAULT)
+    }.getOrNull() ?: return null
+    return runCatching { android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }.getOrNull()
+}
+
 private suspend fun fetchLogoBitmap(baseUrl: String): Bitmap? = withContext(Dispatchers.IO) {
     runCatching {
         val client = OkHttpClient.Builder()

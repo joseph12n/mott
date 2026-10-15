@@ -3,8 +3,10 @@ package dev.mott.app.ui
 import android.content.Context
 import androidx.room.Room
 import dev.mott.app.data.ApiOrderCatalog
+import dev.mott.app.data.Capabilities
 import dev.mott.app.data.AppMode
 import dev.mott.app.data.AppModeStore
+import dev.mott.app.data.capabilitiesFor
 import dev.mott.app.data.CatalogCache
 import dev.mott.app.data.ExpensesRepo
 import dev.mott.app.data.OpTypes
@@ -38,7 +40,7 @@ import java.io.File
 // Room keeps its original job (the pending-op queue of paired installs) and
 // is untouched by standalone mode; the local catalog/sales live in
 // state.json + sales.jsonl under filesDir.
-class AppContainer(appContext: Context) {
+class AppContainer(appContext: Context) : AppServices {
     private val context: Context = appContext.applicationContext
 
     val database: MottDatabase by lazy {
@@ -62,12 +64,16 @@ class AppContainer(appContext: Context) {
 
     // Effective mode: the stored choice, or HUB for installs that paired
     // before modes existed (nothing is persisted by that fallback).
-    fun mode(): AppMode = appModeStore.effective(pairingStore.get() != null)
+    override fun mode(): AppMode = appModeStore.effective(pairingStore.get() != null)
+
+    // What the phone may administer in this mode: full catalog control in
+    // MOBILE, operating only (PC owns the catalog) in HUB.
+    override fun capabilities(): Capabilities = capabilitiesFor(mode())
 
     // Whether a request can reach its backend. In MOBILE mode the api is
     // local, so connectivity is irrelevant (and a bar with no Wi-Fi still
     // works); in HUB mode this stays the network check.
-    fun reachable(): Boolean = when (mode()) {
+    override fun reachable(): Boolean = when (mode()) {
         AppMode.MOBILE -> true
         AppMode.HUB, AppMode.UNSET -> NetStatus.isOnline(context) && pairingStore.get() != null
     }
@@ -108,18 +114,25 @@ class AppContainer(appContext: Context) {
 
     // Proveedores reuse the same seam (SalesRepo hosts the supplier CRUD),
     // so a section never builds its own client from PairingStore.
-    fun suppliersRepo(): SalesRepo = salesRepoInstance
+    override fun suppliers(): SalesRepo = salesRepoInstance
 
     // Catalogo admin (create product, toggle availability) against whichever
     // catalog is authoritative for the mode.
-    fun catalogAdminRepo(): CatalogAdminRepo = CatalogAdminRepo(
+    override fun catalogAdmin(): CatalogAdminRepo = CatalogAdminRepo(
         apiProvider = ::api,
         isOnline = ::reachable,
     )
 
     // Branding read/write api for Personalizar (null when the mode has no
     // backend yet, e.g. UNSET).
-    fun brandingApi(): MittApi? = api()
+    override fun brandingApi(): MittApi? = api()
+
+    // The phone's own logo (data URL) in MOBILE; HUB keeps fetching raw
+    // bytes from /api/branding/logo as before.
+    override suspend fun localLogoDataUrl(): String? = when (mode()) {
+        AppMode.MOBILE -> localStore.getBranding()?.logoDataUrl
+        AppMode.HUB, AppMode.UNSET -> null
+    }
 
     // Gastos data: list with cached fallback plus outbox-backed adds
     // drained through the shared SyncManager FIFO against the same api.
