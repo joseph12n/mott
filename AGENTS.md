@@ -176,13 +176,14 @@ Done:
 - RN port of the seven sections with the web master's tokens.
 - Local standalone store + AsyncStorage.
 - Android CI build.
+- **T1 — Hub wire layer + smoke test.** `src/hub/types.ts`, `src/hub/pairing.ts`,
+  `src/hub/client.ts`, `src/hub/model.ts`, `src/hub/mappers.ts`,
+  `scripts/hub-smoke.mjs`, `npm run test:hub`.
 
 In progress (this session):
 - Hub connectivity re-implementation, code cleanup, living context file.
 
 Planned work units:
-- **T1 — Hub wire layer + smoke test.** `src/hub/types.ts`, `pairing.ts`,
-  `client.ts`, `mappers.ts`, `scripts/hub-smoke.mjs`, `npm run test:hub`.
 - **T2 — Connection state + pull sync + Conexión UI.** Store pairing/connection,
   pull snapshot, real connect/disconnect/sync screen.
 - **T3 — Mesas write-through + offline outbox.** Open/add/close against tabs;
@@ -195,6 +196,19 @@ Planned work units:
 ## 9. Session log
 
 Newest first. Each entry: date, work unit, what changed, verification, next step.
+
+- **2026-10-20 — T1.** Implemented the hub wire layer (`src/hub/types.ts`,
+  `src/hub/pairing.ts`, `src/hub/client.ts`, `src/hub/model.ts`,
+  `src/hub/mappers.ts`) and disposable-hub smoke script (`scripts/hub-smoke.mjs`,
+  `npm run test:hub` in `package.json`, `allowImportingTsExtensions` in
+  `tsconfig.json`). Note: `scripts/hub-smoke.mjs` resolves `MITT_BIN` first, then
+  prefers `/home/joseph/Documentos/mitt/bin/mitt-linux` (and `/usr/bin/mitt`)
+  before `/home/joseph/Documentos/mitt/mitt` because the root `mitt` binary was a
+  stale pre-API stub while `bin/mitt-linux` is the v0.4.0 build from `make build-linux`.
+  Verification: `npm run test:hub` passed all 17 checks (`PASS 1. health()` ..
+  `PASS 17. HubError on 401`) against a disposable hub on `127.0.0.1:8099`;
+  `npx tsc --noEmit` exited 0 with no output.
+  Next: T2 connection state, pull sync, and Conexión UI.
 
 - **2026-10-20 — T0.** Created this living context file and the ODD task document.
   Confirmed Orca can drive the `agy` terminal (Antigravity CLI 1.4.3, Gemini 4
