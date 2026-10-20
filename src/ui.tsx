@@ -123,12 +123,23 @@ export function LinkBtn({
 
 export type PillTone = 'brand' | 'sun' | 'mute' | 'berry'
 
-export function Pill({ p, tone = 'brand', children }: { p: Palette; tone?: PillTone; children: React.ReactNode }) {
+export function Pill({
+  p,
+  tone = 'brand',
+  dotColor,
+  children,
+}: {
+  p: Palette
+  tone?: PillTone
+  dotColor?: string
+  children: React.ReactNode
+}) {
   const background =
     tone === 'brand' ? p.brandSoft : tone === 'sun' ? p.sun : tone === 'berry' ? '#f3d5da' : p.sunk
   const color = tone === 'brand' ? p.brand : tone === 'sun' ? p.sunInk : tone === 'berry' ? p.berry : p.mute
   return (
     <View style={[styles.pill, { backgroundColor: background }]}>
+      {dotColor ? <View style={[styles.dot, { backgroundColor: dotColor }]} /> : null}
       <Text style={[styles.pillText, { color }]}>{children}</Text>
     </View>
   )
@@ -172,13 +183,17 @@ export function Field({
   onChange,
   placeholder,
   keyboardType,
+  secure,
+  autoCapitalize,
   style,
 }: {
   p: Palette
   value: string
   onChange: (value: string) => void
   placeholder?: string
-  keyboardType?: 'default' | 'numeric' | 'decimal-pad'
+  keyboardType?: 'default' | 'numeric' | 'decimal-pad' | 'url'
+  secure?: boolean
+  autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters'
   style?: ViewStyle
 }) {
   return (
@@ -188,6 +203,8 @@ export function Field({
       placeholder={placeholder}
       placeholderTextColor={p.mute}
       keyboardType={keyboardType ?? 'default'}
+      secureTextEntry={secure}
+      autoCapitalize={autoCapitalize}
       style={[
         styles.field,
         { backgroundColor: p.sunk, borderColor: p.line, color: p.ink },

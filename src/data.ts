@@ -5,14 +5,21 @@
 
 export type Product = { id: string; name: string; price: number; category: string }
 export type Line = { productId: string; qty: number }
-export type Table = { id: string; name: string; open: boolean; synced: boolean; lines: Line[] }
+export type Table = {
+  id: string
+  name: string
+  open: boolean
+  synced: boolean
+  lines: Line[]
+  hubTabId?: string | null
+}
 export type Order = {
   id: string
   table: string
   hour: number
   items: { name: string; qty: number; price: number }[]
   total: number
-  method: string
+  method?: string
 }
 export type Expense = { id: string; concept: string; amount: number; date: string }
 export type SupProduct = { id: string; name: string; price: number; unit: string }
@@ -56,30 +63,30 @@ export const seedProducts: Product[] = [
 ]
 
 export const seedTables: Table[] = [
-  { id: 't1', name: 'Mesa 1', open: true, synced: true, lines: [{ productId: 'p1', qty: 2 }, { productId: 'p5', qty: 3 }] },
-  { id: 't2', name: 'Mesa 2', open: false, synced: true, lines: [] },
-  { id: 't3', name: 'Mesa 3', open: true, synced: true, lines: [{ productId: 'p2', qty: 1 }, { productId: 'p6', qty: 2 }] },
-  { id: 't4', name: 'Mesa 4', open: true, synced: false, lines: [{ productId: 'p3', qty: 2 }] },
-  { id: 't5', name: 'Terraza 1', open: false, synced: false, lines: [] },
-  { id: 't6', name: 'Barra', open: false, synced: true, lines: [] },
+  { id: 't1', name: 'Mesa 1', open: true, synced: true, lines: [{ productId: 'p1', qty: 2 }, { productId: 'p5', qty: 3 }], hubTabId: null },
+  { id: 't2', name: 'Mesa 2', open: false, synced: true, lines: [], hubTabId: null },
+  { id: 't3', name: 'Mesa 3', open: true, synced: true, lines: [{ productId: 'p2', qty: 1 }, { productId: 'p6', qty: 2 }], hubTabId: null },
+  { id: 't4', name: 'Mesa 4', open: true, synced: false, lines: [{ productId: 'p3', qty: 2 }], hubTabId: null },
+  { id: 't5', name: 'Terraza 1', open: false, synced: false, lines: [], hubTabId: null },
+  { id: 't6', name: 'Barra', open: false, synced: true, lines: [], hubTabId: null },
 ]
 
-const mk = (table: string, hour: number, method: string, items: [string, number, number][]): Order => {
+const mk = (table: string, hour: number, items: [string, number, number][]): Order => {
   const its = items.map(([name, qty, price]) => ({ name, qty, price }))
-  return { id: uid(), table, hour, method, items: its, total: its.reduce((s, i) => s + i.qty * i.price, 0) }
+  return { id: uid(), table, hour, items: its, total: its.reduce((s, i) => s + i.qty * i.price, 0) }
 }
 
 export const seedOrders: Order[] = [
-  mk('Mesa 1', 12, 'Tarjeta', [['Milanesa napolitana', 2, 8900], ['Cerveza artesanal', 2, 3200]]),
-  mk('Mesa 2', 12, 'Efectivo', [['Pizza muzzarella', 2, 7400], ['Limonada menta', 2, 2400]]),
-  mk('Barra', 13, 'QR', [['Hamburguesa doble', 1, 9200], ['Cerveza artesanal', 1, 3200]]),
-  mk('Mesa 3', 13, 'Tarjeta', [['Ensalada César', 2, 6100], ['Flan con dulce', 2, 3500]]),
-  mk('Mesa 1', 14, 'Efectivo', [['Pizza muzzarella', 3, 7400], ['Cerveza artesanal', 4, 3200]]),
-  mk('Terraza 1', 14, 'QR', [['Hamburguesa doble', 3, 9200], ['Limonada menta', 3, 2400]]),
-  mk('Mesa 4', 15, 'Tarjeta', [['Milanesa napolitana', 1, 8900], ['Flan con dulce', 1, 3500]]),
-  mk('Mesa 2', 16, 'Tarjeta', [['Cerveza artesanal', 6, 3200]]),
-  mk('Mesa 3', 17, 'Efectivo', [['Pizza muzzarella', 2, 7400], ['Ensalada César', 1, 6100]]),
-  mk('Barra', 18, 'QR', [['Cerveza artesanal', 3, 3200], ['Hamburguesa doble', 1, 9200]]),
+  mk('Mesa 1', 12, [['Milanesa napolitana', 2, 8900], ['Cerveza artesanal', 2, 3200]]),
+  mk('Mesa 2', 12, [['Pizza muzzarella', 2, 7400], ['Limonada menta', 2, 2400]]),
+  mk('Barra', 13, [['Hamburguesa doble', 1, 9200], ['Cerveza artesanal', 1, 3200]]),
+  mk('Mesa 3', 13, [['Ensalada César', 2, 6100], ['Flan con dulce', 2, 3500]]),
+  mk('Mesa 1', 14, [['Pizza muzzarella', 3, 7400], ['Cerveza artesanal', 4, 3200]]),
+  mk('Terraza 1', 14, [['Hamburguesa doble', 3, 9200], ['Limonada menta', 3, 2400]]),
+  mk('Mesa 4', 15, [['Milanesa napolitana', 1, 8900], ['Flan con dulce', 1, 3500]]),
+  mk('Mesa 2', 16, [['Cerveza artesanal', 6, 3200]]),
+  mk('Mesa 3', 17, [['Pizza muzzarella', 2, 7400], ['Ensalada César', 1, 6100]]),
+  mk('Barra', 18, [['Cerveza artesanal', 3, 3200], ['Hamburguesa doble', 1, 9200]]),
 ]
 
 export const seedExpenses: Expense[] = [

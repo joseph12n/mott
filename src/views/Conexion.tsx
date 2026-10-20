@@ -1,72 +1,227 @@
 import { useState } from 'react'
-import { Share, Text, useWindowDimensions, View } from 'react-native'
+import { Text, useWindowDimensions, View } from 'react-native'
 
-import { useStore } from '../store'
-import { BREAKPOINTS } from '../theme'
+import { ConnectionState, useStore } from '../store'
+import { BREAKPOINTS, Palette } from '../theme'
 import { usePalette } from '../usePalette'
-import { Btn, Card, Field, Header, Num, Pill, styles as ui } from '../ui'
+import { Btn, Card, Field, Header, LinkBtn, Num, Pill, PillTone, styles as ui } from '../ui'
 
-// Conexión ported from the web master (views/Conexion.tsx). On the PC that
-// screen shows a QR for the phone to scan; on the phone the same data is
-// useful as the address of the bar's server plus what this device holds, so
-// the QR block becomes a share/copy action and an explicit note that the QR
-// is displayed on the PC. The endpoint list stays as documentation of the
-// hub's public API.
 type Target = 'panel' | 'mesas' | 'catalogo' | 'proveedores' | 'gastos' | 'conexion' | 'personalizar'
+
+function connectionBadge(
+  connection: ConnectionState,
+  p: Palette,
+): { label: string; tone: PillTone; dotColor: string } {
+  switch (connection) {
+    case 'online':
+      return { label: 'Conectado', tone: 'brand', dotColor: p.brand }
+    case 'connecting':
+      return { label: 'Conectando…', tone: 'sun', dotColor: p.sunInk }
+    case 'offline':
+      return { label: 'Sin conexión', tone: 'sun', dotColor: p.berry }
+    case 'error':
+      return { label: 'Error', tone: 'berry', dotColor: p.berry }
+    default:
+      return { label: 'Sin vincular', tone: 'mute', dotColor: p.mute }
+  }
+}
+
+function formatSyncTime(iso: string | null): string {
+  if (!iso) return 'Nunca'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
 
 export default function Conexion({ go }: { go: (v: Target) => void }) {
   const s = useStore()
   const p = usePalette()
   const { width } = useWindowDimensions()
-  const [host, setHost] = useState('192.168.1.34')
-  const [port, setPort] = useState('8080')
-  const [shared, setShared] = useState(false)
 
-  const url = `http://${host}:${port}`
-  const synced = s.tables.filter((t) => t.synced).length
+  const [codeInput, setCodeInput] = useState('')
+  const [manual, setManual] = useState(false)
+  const [manualUrl, setManualUrl] = useState(s.pairing?.baseUrl ?? 'http://192.168.1.34:8080')
+  const [manualToken, setManualToken] = useState('')
+  const [armedDisconnect, setArmedDisconnect] = useState(false)
+
   const split = width >= BREAKPOINTS.twoPane
+  const badge = connectionBadge(s.connection, p)
+  const isPaired = Boolean(s.pairing)
+  const isBusy = s.connection === 'connecting'
 
   const steps = [
-    'Abrí la PC del bar y entrá a la sección Conexión.',
-    'En el teléfono, tocá “Escanear código” y apuntá al QR de la PC.',
-    'Mesas y productos se descargan solos en la app.',
+    'Abrí la sección Conexión en el servidor de la PC.',
+    'Copiá el código de vinculación (o la dirección y el token).',
+    'Pegalo acá y tocá Vincular.',
   ]
 
   const endpoints: [string, string][] = [
-    ['GET', '/api/tables'],
+    ['GET', '/api/health'],
+    ['GET', '/api/pairing'],
     ['GET', '/api/products'],
+    ['GET', '/api/tables'],
+    ['GET', '/api/tabs/open'],
     ['POST', '/api/tabs'],
-    ['PATCH', '/api/tables/:id'],
+    ['GET', '/api/sales/today'],
+    ['GET', '/api/expenses'],
+    ['GET', '/api/suppliers'],
+    ['GET', '/api/branding'],
   ]
 
-  const share = async () => {
-    try {
-      await Share.share({ message: `Servidor del bar: ${url}` })
-      setShared(true)
-    } catch {
-      // Sharing is optional: a dismissed sheet is not an error worth showing.
+  const handleConnect = () => {
+    setArmedDisconnect(false)
+    if (manual) {
+      void s.connect({ baseUrl: manualUrl, token: manualToken })
+    } else {
+      void s.connect(codeInput)
     }
   }
 
-  const serverCard = (
+  const canSubmit = manual
+    ? Boolean(manualUrl.trim() && manualToken.trim())
+    : Boolean(codeInput.trim())
+
+  const statusCard = (
     <Card p={p}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Text style={[ui.title, { color: p.ink }]}>Servidor</Text>
-        <Pill p={p}>
-          <View style={[ui.dot, { backgroundColor: p.brand }]} />
-          Datos locales
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <Text style={[ui.title, { color: p.ink, flex: 1 }]} numberOfLines={1}>
+          Estado del vínculo
+        </Text>
+        <Pill p={p} tone={badge.tone} dotColor={badge.dotColor}>
+          {badge.label}
         </Pill>
       </View>
-      <View style={{ marginTop: 12 }}>
-        <Num p={p} value={url} size={18} />
+
+      <View style={{ marginTop: 12, gap: 6 }}>
+        <Text style={[ui.btnLabel, { color: p.ink }]} numberOfLines={1}>
+          {isPaired ? s.name : 'Sin servidor vinculado'}
+        </Text>
+        <Num
+          p={p}
+          value={s.pairing ? s.pairing.baseUrl : 'Modo local en el teléfono'}
+          size={15}
+          color={s.pairing ? p.ink : p.mute}
+        />
+      </View>
+
+      <View style={{ marginTop: 12, gap: 4 }}>
+        <Text style={[ui.sub, { color: p.mute }]}>
+          Última sincronización:{' '}
+          <Text style={{ color: p.ink, fontWeight: '700' }}>{formatSyncTime(s.lastSyncAt)}</Text>
+        </Text>
+        <Text style={[ui.sub, { color: p.mute }]}>
+          Pendientes:{' '}
+          <Text style={{ color: s.pending > 0 ? p.sunInk : p.ink, fontWeight: '700' }}>
+            {s.pending}
+          </Text>
+        </Text>
+      </View>
+
+      {s.hubError ? (
+        <View
+          style={{
+            marginTop: 12,
+            padding: 10,
+            borderRadius: 10,
+            backgroundColor: '#f3d5da',
+          }}
+        >
+          <Text style={[ui.btnLabel, { color: p.berry }]}>{s.hubError}</Text>
+        </View>
+      ) : null}
+
+      <View style={{ marginTop: 14, gap: 8 }}>
+        <Btn
+          p={p}
+          label="SINCRONIZAR AHORA"
+          disabled={!isPaired || isBusy}
+          onPress={() => void s.syncNow()}
+        />
+        {isPaired ? (
+          armedDisconnect ? (
+            <View style={{ gap: 8 }}>
+              <Btn
+                p={p}
+                label="CONFIRMAR DESVINCULAR"
+                variant="danger"
+                onPress={() => {
+                  setArmedDisconnect(false)
+                  void s.disconnect()
+                }}
+              />
+              <Btn
+                p={p}
+                label="CANCELAR"
+                variant="ghost"
+                onPress={() => setArmedDisconnect(false)}
+              />
+            </View>
+          ) : (
+            <Btn
+              p={p}
+              label="DESVINCULAR"
+              variant="ghost"
+              onPress={() => setArmedDisconnect(true)}
+            />
+          )
+        ) : null}
+      </View>
+    </Card>
+  )
+
+  const pairingCard = (
+    <Card p={p}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <Text style={[ui.title, { color: p.ink, flex: 1 }]}>Vincular con la PC</Text>
+        <LinkBtn
+          p={p}
+          label={manual ? 'Usar código' : 'Campos manuales'}
+          color={p.brand}
+          onPress={() => setManual((v) => !v)}
+        />
       </View>
       <Text style={[ui.sub, { color: p.mute, marginTop: 4 }]}>
-        Dirección del servidor del bar. El QR se muestra en la PC, en su sección Conexión.
+        {manual
+          ? 'Ingresá la dirección LAN de la PC (con puerto) y el token de vinculación.'
+          : 'Pegá el código mitt://pair?... o el formato http://ip:puerto|token.'}
       </Text>
+
       <View style={{ marginTop: 12, gap: 8 }}>
-        <Btn p={p} label={shared ? 'Dirección compartida' : 'Compartir dirección'} variant="ghost" onPress={share} />
-        <Field p={p} value={host} onChange={setHost} placeholder="IP local" />
-        <Field p={p} value={port} onChange={setPort} placeholder="Puerto" keyboardType="numeric" />
+        {manual ? (
+          <>
+            <Field
+              p={p}
+              value={manualUrl}
+              onChange={setManualUrl}
+              placeholder="http://192.168.1.34:8080"
+              keyboardType="url"
+              autoCapitalize="none"
+            />
+            <Field
+              p={p}
+              value={manualToken}
+              onChange={setManualToken}
+              placeholder="Token de vinculación (mín. 16 caracteres)"
+              secure
+              autoCapitalize="none"
+            />
+          </>
+        ) : (
+          <Field
+            p={p}
+            value={codeInput}
+            onChange={setCodeInput}
+            placeholder="mitt://pair?url=http%3A%2F%2F192.168.1.34%3A8080&token=..."
+            autoCapitalize="none"
+          />
+        )}
+        <Btn
+          p={p}
+          label="VINCULAR"
+          disabled={!canSubmit || isBusy}
+          onPress={handleConnect}
+        />
       </View>
     </Card>
   )
@@ -96,32 +251,39 @@ export default function Conexion({ go }: { go: (v: Target) => void }) {
     </Card>
   )
 
+  const baseForDocs = s.pairing?.baseUrl ?? 'http://192.168.1.34:8080'
+
   return (
     <View style={{ gap: 16 }}>
       <Header
         p={p}
         title="Conexión"
-        sub="Enlaza la app móvil con el servidor de la PC"
+        sub="Enlaza la app móvil con el servidor mitt de la PC"
         right={<Btn p={p} label="Ver mesas" variant="ghost" onPress={() => go('mesas')} />}
       />
 
       {split ? (
         <View style={{ flexDirection: 'row', gap: 16 }}>
-          <View style={{ flex: 1, gap: 16 }}>{serverCard}</View>
+          <View style={{ flex: 1, gap: 16 }}>
+            {statusCard}
+            {pairingCard}
+          </View>
           <View style={{ flex: 1, gap: 16 }}>{howTo}</View>
         </View>
       ) : (
         <>
-          {serverCard}
+          {statusCard}
+          {pairingCard}
           {howTo}
         </>
       )}
 
       <View style={{ gap: 12, flexDirection: split ? 'row' : 'column' }}>
         {[
-          { label: 'Mesas sincronizadas', value: `${synced}/${s.tables.length}` },
-          { label: 'Productos publicados', value: String(s.products.length) },
+          { label: 'Mesas', value: String(s.tables.length) },
+          { label: 'Productos', value: String(s.products.length) },
           { label: 'Datos en el teléfono', value: `${s.expenses.length + s.orders.length} registros` },
+          { label: 'Pendientes', value: String(s.pending) },
         ].map((k) => (
           <Card key={k.label} p={p} style={{ flex: 1 }}>
             <Num p={p} value={k.value} size={22} />
@@ -133,26 +295,22 @@ export default function Conexion({ go }: { go: (v: Target) => void }) {
       <Card p={p}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <Text style={[ui.title, { color: p.ink, flex: 1 }]}>API de la PC</Text>
+          <Pill p={p} tone="mute">
+            Solo lectura
+          </Pill>
         </View>
         <Text style={[ui.sub, { color: p.mute, marginTop: 4 }]}>
-          Rutas que expone el servidor del bar para la app móvil.
+          Referencia de rutas que expone el servidor del bar para la app móvil.
         </Text>
         <View style={{ marginTop: 12, gap: 10 }}>
           {endpoints.map(([method, path]) => (
-            <View key={path} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <View key={`${method}:${path}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
               <Pill p={p} tone={method === 'GET' ? 'brand' : 'sun'}>
                 {method}
               </Pill>
-              <Num p={p} value={`${url}${path}`} size={12} color={p.mute} />
+              <Num p={p} value={`${baseForDocs}${path}`} size={12} color={p.mute} />
             </View>
           ))}
-        </View>
-        <View style={{ marginTop: 14 }}>
-          <Btn
-            p={p}
-            label="Registrar todas las mesas"
-            onPress={() => s.setTables((t) => t.map((x) => ({ ...x, synced: true })))}
-          />
         </View>
       </Card>
     </View>

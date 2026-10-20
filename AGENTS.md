@@ -179,13 +179,14 @@ Done:
 - **T1 — Hub wire layer + smoke test.** `src/hub/types.ts`, `src/hub/pairing.ts`,
   `src/hub/client.ts`, `src/hub/model.ts`, `src/hub/mappers.ts`,
   `scripts/hub-smoke.mjs`, `npm run test:hub`.
+- **T2 — Connection state + pull sync + Conexión UI.** `src/hub/queue.ts`,
+  `src/hub/sync.ts`, `src/store.tsx`, `src/views/Conexion.tsx`, `src/ui.tsx`,
+  `src/data.ts`, `src/views/Panel.tsx`.
 
 In progress (this session):
 - Hub connectivity re-implementation, code cleanup, living context file.
 
 Planned work units:
-- **T2 — Connection state + pull sync + Conexión UI.** Store pairing/connection,
-  pull snapshot, real connect/disconnect/sync screen.
 - **T3 — Mesas write-through + offline outbox.** Open/add/close against tabs;
   idempotent SAVE_TAB/CLOSE_TAB drain.
 - **T4 — Remaining sections + honest cleanup.** Catálogo, Gastos, Proveedores,
@@ -196,6 +197,24 @@ Planned work units:
 ## 9. Session log
 
 Newest first. Each entry: date, work unit, what changed, verification, next step.
+
+- **2026-10-20 — T2.** Implemented the offline outbox queue (`src/hub/queue.ts`
+  persisted under `mott:pending:v1`), snapshot pull and idempotent FIFO queue
+  drain (`src/hub/sync.ts`), store connection/pairing state and `connect` /
+  `disconnect` / `syncNow` actions (`src/store.tsx` with `mott:pairing:v1` and
+  `mott:app-state:v1`), real `Conexión` screen (`src/views/Conexion.tsx`), and
+  `Field` (`secure`, `autoCapitalize`, `url` keyboard) + `Pill` (`dotColor`) in
+  `src/ui.tsx`. Updated `src/data.ts` (`Table.hubTabId`, `seedTables` with
+  `hubTabId: null`, `seedOrders` without `method`) and `src/views/Panel.tsx`
+  (replaced `o.method` pill with `Cobrada`); kept `hubTabId?: string | null` and
+  `method?: string` optional on the types so `src/views/Mesas.tsx` stays untouched
+  until T3.
+  Verification: `npx tsc --noEmit` exited 0 with no output; `npm run test:hub`
+  passed all 18 checks (`PASS 1. health()` .. `PASS 18. outbox ...`).
+  Orchestrator follow-up: fixed `drainQueue` dead-letter handling (exhausted
+  ops were never removed, so `pending` could never reach zero) and added smoke
+  check 18 for delta, idempotent SAVE_TAB, poison drop, retry and exhaustion.
+  Next: T3 Mesas write-through and offline outbox.
 
 - **2026-10-20 — T1.** Implemented the hub wire layer (`src/hub/types.ts`,
   `src/hub/pairing.ts`, `src/hub/client.ts`, `src/hub/model.ts`,

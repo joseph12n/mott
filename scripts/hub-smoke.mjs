@@ -18,6 +18,8 @@ import {
   toCents,
 } from '../src/hub/mappers.ts'
 import { normalizeBaseUrl, pairingUrl, parsePairingCode } from '../src/hub/pairing.ts'
+import { MAX_PENDING_ATTEMPTS } from '../src/hub/queue.ts'
+import { computeTabDelta, drainQueue } from '../src/hub/sync.ts'
 
 function resolveMittBinary() {
   if (process.env.MITT_BIN) {
@@ -333,6 +335,131 @@ async function main() {
       (err) => err instanceof HubError && err.status === 401,
     )
     console.log('PASS 17. HubError on 401')
+
+    // 18. Offline outbox: delta, idempotent SAVE_TAB, poison drop, retry, exhaustion
+    assert.deepEqual(
+      computeTabDelta(
+        [{ productId: 'p1', qty: 4 }],
+        [{ product_id: 'p1', qty: 1 }],
+      ),
+      [{ product_id: 'p1', qty: 3 }],
+    )
+    assert.deepEqual(
+      computeTabDelta([{ productId: 'p1', qty: 2 }], [{ product_id: 'p1', qty: 4 }]),
+      [],
+    )
+
+    const existingTab = {
+      id: 'tab-existing',
+      table_id: 'table-1',
+      status: 'open',
+      opened_at: '2026-10-20T00:00:00Z',
+      items: [
+        { product_id: 'p1', name: 'Product', unit_price_cents: 100, qty: 1, line_total_cents: 100 },
+      ],
+      total_cents: 100,
+    }
+    const addedItems = []
+    const idempotentClient = {
+      baseUrl: BASE_URL,
+      openTabs: async () => [existingTab],
+      openTab: async () => {
+        throw new Error('openTab should not be called')
+      },
+      addItem: async (tabId, body) => {
+        addedItems.push({ tabId, body })
+        return existingTab
+      },
+    }
+    const saved = await drainQueue(idempotentClient, [
+      {
+        id: 'op-save',
+        type: 'SAVE_TAB',
+        payload: { tableId: 'table-1', lines: [{ productId: 'p1', qty: 4 }] },
+        attempts: 0,
+        createdAt: 0,
+      },
+    ])
+    assert.deepEqual(addedItems, [
+      { tabId: 'tab-existing', body: { product_id: 'p1', qty: 3 } },
+    ])
+    assert.equal(saved.ops.length, 0)
+    assert.equal(saved.report.synced, 1)
+
+    const poisonClient = {
+      baseUrl: BASE_URL,
+      openTabs: async () => [],
+      openTab: async () => ({ ...existingTab, id: 'tab-new', items: [] }),
+      addItem: async () => {
+        throw new HubError(400, 'bad_request', 'bad')
+      },
+    }
+    const poisoned = await drainQueue(poisonClient, [
+      {
+        id: 'op-poison',
+        type: 'SAVE_TAB',
+        payload: { tableId: 'table-1', lines: [{ productId: 'p1', qty: 1 }] },
+        attempts: 0,
+        createdAt: 0,
+      },
+    ])
+    assert.equal(poisoned.ops.length, 0)
+    assert.equal(poisoned.report.dropped, 1)
+
+    const failingClient = {
+      baseUrl: BASE_URL,
+      openTabs: async () => [],
+      openTab: async () => ({ ...existingTab, id: 'tab-new', items: [] }),
+      addItem: async () => {
+        throw new HubError(500, 'hub_error', 'boom')
+      },
+    }
+    const retried = await drainQueue(failingClient, [
+      {
+        id: 'op-retry',
+        type: 'SAVE_TAB',
+        payload: { tableId: 'table-1', lines: [{ productId: 'p1', qty: 1 }] },
+        attempts: 0,
+        createdAt: 0,
+      },
+    ])
+    assert.equal(retried.ops.length, 1)
+    assert.equal(retried.ops[0].attempts, 1)
+    assert.equal(retried.report.deferred, 1)
+
+    const exhausted = await drainQueue(failingClient, [
+      {
+        id: 'op-exhausted',
+        type: 'SAVE_TAB',
+        payload: { tableId: 'table-1', lines: [{ productId: 'p1', qty: 1 }] },
+        attempts: MAX_PENDING_ATTEMPTS - 1,
+        createdAt: 0,
+      },
+    ])
+    assert.equal(exhausted.ops.length, 0)
+    assert.equal(exhausted.report.exhausted, 1)
+
+    const closed = await drainQueue(
+      {
+        baseUrl: BASE_URL,
+        openTabs: async () => [],
+        closeTab: async () => {
+          throw new Error('closeTab should not be called')
+        },
+      },
+      [
+        {
+          id: 'op-close',
+          type: 'CLOSE_TAB',
+          payload: { tableId: 'table-1' },
+          attempts: 0,
+          createdAt: 0,
+        },
+      ],
+    )
+    assert.equal(closed.ops.length, 0)
+    assert.equal(closed.report.synced, 1)
+    console.log('PASS 18. outbox delta, idempotent save, poison, retry, exhaustion')
   } finally {
     await stopProcess(child)
     rmSync(tmpDir, { recursive: true, force: true })

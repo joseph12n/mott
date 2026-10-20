@@ -189,7 +189,7 @@ export default function Panel({ go }: { go: (v: 'conexion' | 'proveedores') => v
                 </Text>
                 <Num p={p} value={`${o.hour}:00`} size={12} color={p.mute} />
                 <Pill p={p} tone="mute">
-                  {o.method}
+                  Cobrada
                 </Pill>
                 <Num p={p} value={money(o.total)} size={13} />
               </View>
