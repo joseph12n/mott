@@ -182,13 +182,14 @@ Done:
 - **T2 — Connection state + pull sync + Conexión UI.** `src/hub/queue.ts`,
   `src/hub/sync.ts`, `src/store.tsx`, `src/views/Conexion.tsx`, `src/ui.tsx`,
   `src/data.ts`, `src/views/Panel.tsx`.
+- **T3 — Mesas write-through + offline outbox.** `src/store.tsx`,
+  `src/views/Mesas.tsx`, `src/hub/queue.ts`, `src/hub/sync.ts`, `src/data.ts`,
+  `scripts/hub-smoke.mjs`.
 
 In progress (this session):
 - Hub connectivity re-implementation, code cleanup, living context file.
 
 Planned work units:
-- **T3 — Mesas write-through + offline outbox.** Open/add/close against tabs;
-  idempotent SAVE_TAB/CLOSE_TAB drain.
 - **T4 — Remaining sections + honest cleanup.** Catálogo, Gastos, Proveedores,
   Personalizar, Panel; remove fake supplier balances and unused seed data.
 - **T5 — Android cleartext + docs.** `expo-build-properties`
@@ -197,6 +198,22 @@ Planned work units:
 ## 9. Session log
 
 Newest first. Each entry: date, work unit, what changed, verification, next step.
+
+- **2026-10-20 — T3.** Implemented `Mesas` write-through and offline outbox
+  actions (`createTable`, `deleteTable`, `openTable`, `addItem`, `closeTable`) in
+  `src/store.tsx`, per-table outbox coalescing (`enqueueSaveTab`,
+  `enqueueCloseTab`) in `src/hub/queue.ts`, offline `CLOSE_TAB` line reconciliation
+  in `src/hub/sync.ts`, non-optional `Table.hubTabId: string | null` and complete
+  removal of `Order.method` in `src/data.ts`, and wired `src/views/Mesas.tsx` to
+  the store actions with status pills and inline error/queued feedback. Extended
+  check 18 in `scripts/hub-smoke.mjs` with live disposable-hub assertions for
+  coalescing, idempotent `SAVE_TAB` re-drain, and `CLOSE_TAB` drain.
+  Verification: `npx tsc --noEmit` exited 0 with no output; `npm run test:hub`
+  passed all 18 checks (`PASS 1. health()` .. `PASS 18. outbox ...`).
+  Known tradeoff: a `CLOSE_TAB` retried after the hub closed the tab but the
+  response was lost can reopen and re-close it. The alternative (treat "no open
+  tab" as done) would lose every sale created and closed while offline.
+  Next: T4 remaining sections and honest cleanup.
 
 - **2026-10-20 — T2.** Implemented the offline outbox queue (`src/hub/queue.ts`
   persisted under `mott:pending:v1`), snapshot pull and idempotent FIFO queue

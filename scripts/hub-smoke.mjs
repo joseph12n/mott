@@ -18,7 +18,7 @@ import {
   toCents,
 } from '../src/hub/mappers.ts'
 import { normalizeBaseUrl, pairingUrl, parsePairingCode } from '../src/hub/pairing.ts'
-import { MAX_PENDING_ATTEMPTS } from '../src/hub/queue.ts'
+import { enqueueCloseTab, enqueueSaveTab, MAX_PENDING_ATTEMPTS } from '../src/hub/queue.ts'
 import { computeTabDelta, drainQueue } from '../src/hub/sync.ts'
 
 function resolveMittBinary() {
@@ -459,6 +459,44 @@ async function main() {
     )
     assert.equal(closed.ops.length, 0)
     assert.equal(closed.report.synced, 1)
+
+    // Coalescing and live idempotent SAVE_TAB -> re-drain -> CLOSE_TAB against disposable hub
+    const tableForSave = await client.createTable({ label: 'Idempotent table' })
+    let localQueue = enqueueSaveTab([], {
+      tableId: tableForSave.id,
+      lines: [{ productId: createdProduct.id, qty: 1 }],
+    })
+    localQueue = enqueueSaveTab(localQueue, {
+      tableId: tableForSave.id,
+      lines: [{ productId: createdProduct.id, qty: 2 }],
+    })
+    assert.equal(localQueue.length, 1)
+
+    const drain1 = await drainQueue(client, localQueue)
+    assert.equal(drain1.report.synced, 1)
+    assert.equal(drain1.ops.length, 0)
+
+    const drain2 = await drainQueue(client, localQueue)
+    assert.equal(drain2.report.synced, 1)
+    const openAfterReDrain = await client.openTabs()
+    const savedTab = openAfterReDrain.find((t) => t.table_id === tableForSave.id)
+    assert.ok(savedTab)
+    assert.equal(savedTab.items.length, 1)
+    assert.equal(savedTab.items[0].qty, 2)
+
+    let closeQueue = enqueueSaveTab([], {
+      tableId: tableForSave.id,
+      lines: [{ productId: createdProduct.id, qty: 2 }],
+    })
+    closeQueue = enqueueCloseTab(closeQueue, {
+      tableId: tableForSave.id,
+      lines: [{ productId: createdProduct.id, qty: 2 }],
+    })
+    assert.equal(closeQueue.length, 1)
+    assert.equal(closeQueue[0].type, 'CLOSE_TAB')
+    const drainClose = await drainQueue(client, closeQueue)
+    assert.equal(drainClose.report.synced, 1)
+    assert.equal(drainClose.ops.length, 0)
     console.log('PASS 18. outbox delta, idempotent save, poison, retry, exhaustion')
   } finally {
     await stopProcess(child)

@@ -1,19 +1,26 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 
-import type { Expense, Order, Product, Supplier, Table } from './data'
 import {
+  Expense,
+  Line,
+  Order,
+  Product,
+  Supplier,
+  Table,
   seedExpenses,
   seedOrders,
   seedProducts,
   seedSuppliers,
   seedTables,
+  uid,
 } from './data'
 import { createHubClient, HubError } from './hub/client.ts'
+import { mapSales } from './hub/mappers.ts'
 import type { HubSnapshot, HubSupplier, HubToday } from './hub/model.ts'
 import { normalizeBaseUrl, parsePairingCode } from './hub/pairing.ts'
 import type { Pairing } from './hub/pairing.ts'
-import { loadQueue, saveQueue } from './hub/queue.ts'
+import { enqueueCloseTab, enqueueSaveTab, loadQueue, saveQueue } from './hub/queue.ts'
 import { drainQueue, pullSnapshot } from './hub/sync.ts'
 
 export type ConnectionState = 'unpaired' | 'connecting' | 'online' | 'offline' | 'error'
@@ -51,6 +58,11 @@ export type Store = {
   connect: (input: string | { baseUrl: string; token: string }) => Promise<void>
   disconnect: () => Promise<void>
   syncNow: () => Promise<void>
+  createTable: (label: string) => Promise<boolean>
+  deleteTable: (tableId: string) => Promise<boolean>
+  openTable: (tableId: string) => Promise<boolean>
+  addItem: (tableId: string, productId: string, qty: number) => Promise<boolean>
+  closeTable: (tableId: string) => Promise<boolean>
   ready: boolean
 }
 
@@ -180,6 +192,32 @@ function buildCategoryMap(products: Product[]): Record<string, string> {
   return categories
 }
 
+function mergeLines(lines: Line[], productId: string, qty: number): Line[] {
+  const existing = lines.find((l) => l.productId === productId)
+  if (existing) {
+    return lines.map((l) => (l.productId === productId ? { ...l, qty: l.qty + qty } : l))
+  }
+  return [...lines, { productId, qty }]
+}
+
+function buildLocalOrder(table: Table, products: Product[]): Order {
+  const priceOf = (id: string) => products.find((p) => p.id === id)?.price ?? 0
+  const nameOf = (id: string) => products.find((p) => p.id === id)?.name ?? 'Producto'
+  const items = table.lines.map((l) => ({
+    name: nameOf(l.productId),
+    qty: l.qty,
+    price: priceOf(l.productId),
+  }))
+  const total = items.reduce((sum, it) => sum + it.qty * it.price, 0)
+  return {
+    id: uid(),
+    table: table.name,
+    hour: new Date().getHours(),
+    items,
+    total,
+  }
+}
+
 function applySnapshotToState(current: Persisted, snapshot: HubSnapshot): Persisted {
   const productAvailable: Record<string, boolean> = {}
   const products: Product[] = snapshot.products.map((p) => {
@@ -249,6 +287,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const pairingRef = useRef<Pairing | null>(pairing)
   pairingRef.current = pairing
 
+  const connectionRef = useRef<ConnectionState>(connection)
+  connectionRef.current = connection
+
+  const updateConnection = useCallback((next: ConnectionState) => {
+    connectionRef.current = next
+    setConnection(next)
+  }, [])
+
   // Writes are coalesced (one pending write at a time) so rapid taps do not
   // queue dozens of whole-state writes.
   const pendingWrite = useRef<Persisted | null>(null)
@@ -303,7 +349,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const syncWithPairing = useCallback(
     async (activePairing: Pairing) => {
-      setConnection('connecting')
+      updateConnection('connecting')
       setHubError(null)
       const client = createHubClient(activePairing)
       try {
@@ -325,7 +371,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
           if (report.deferred > 0) {
             commitState((current) => applySnapshotToState(current, snapshot))
-            setConnection('offline')
+            updateConnection('offline')
             setHubError('No se pudo conectar')
             return
           }
@@ -334,24 +380,24 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         }
 
         commitState((current) => applySnapshotToState(current, snapshot))
-        setConnection('online')
+        updateConnection('online')
         setHubError(null)
       } catch (err) {
         const queued = await loadQueue()
         setPendingCount(queued.length)
         if (err instanceof HubError && (err.status === 401 || err.status === 403)) {
-          setConnection('error')
+          updateConnection('error')
           setHubError('Token inválido')
         } else if (err instanceof HubError) {
-          setConnection('error')
+          updateConnection('error')
           setHubError(err.message || `Error HTTP ${err.status}`)
         } else {
-          setConnection('offline')
+          updateConnection('offline')
           setHubError('No se pudo conectar')
         }
       }
     },
-    [commitState],
+    [commitState, updateConnection],
   )
 
   useEffect(() => {
@@ -381,12 +427,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (validPairing) {
           pairingRef.current = validPairing
           setPairing(validPairing)
-          setConnection('connecting')
+          updateConnection('connecting')
           void syncWithPairing(validPairing)
         } else {
           pairingRef.current = null
           setPairing(null)
-          setConnection('unpaired')
+          updateConnection('unpaired')
         }
       })
       .catch(() => {
@@ -398,7 +444,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return () => {
       alive = false
     }
-  }, [syncWithPairing])
+  }, [syncWithPairing, updateConnection])
 
   const connect = useCallback(
     async (input: string | { baseUrl: string; token: string }) => {
@@ -415,7 +461,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           parsed = { baseUrl, token }
         }
       } catch (err) {
-        setConnection('error')
+        updateConnection('error')
         const message = err instanceof Error ? err.message : ''
         if (message.includes('16')) {
           setHubError('El token debe tener al menos 16 caracteres')
@@ -425,7 +471,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return
       }
 
-      setConnection('connecting')
+      updateConnection('connecting')
       setHubError(null)
 
       const client = createHubClient(parsed)
@@ -433,13 +479,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         await client.pairing()
       } catch (err) {
         if (err instanceof HubError && (err.status === 401 || err.status === 403)) {
-          setConnection('error')
+          updateConnection('error')
           setHubError('Token inválido')
         } else if (err instanceof HubError) {
-          setConnection('error')
+          updateConnection('error')
           setHubError(err.message || `Error HTTP ${err.status}`)
         } else {
-          setConnection('offline')
+          updateConnection('offline')
           setHubError('No se pudo conectar')
         }
         return
@@ -455,7 +501,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
       await syncWithPairing(parsed)
     },
-    [syncWithPairing],
+    [syncWithPairing, updateConnection],
   )
 
   const disconnect = useCallback(async () => {
@@ -466,7 +512,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
     pairingRef.current = null
     setPairing(null)
-    setConnection('unpaired')
+    updateConnection('unpaired')
     setHubError(null)
     commitState((current) => ({
       ...current,
@@ -474,13 +520,395 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       hubToday: null,
       logoUrl: null,
     }))
-  }, [commitState])
+  }, [commitState, updateConnection])
 
   const syncNow = useCallback(async () => {
     const activePairing = pairingRef.current
     if (!activePairing) return
     await syncWithPairing(activePairing)
   }, [syncWithPairing])
+
+  const queueSaveTabOffline = useCallback(
+    async (tableId: string, lines: Line[]) => {
+      const queued = await loadQueue()
+      const nextQueue = enqueueSaveTab(queued, { tableId, lines })
+      await saveQueue(nextQueue)
+      setPendingCount(nextQueue.length)
+      setHubError(null)
+    },
+    [],
+  )
+
+  const queueCloseTabOffline = useCallback(
+    async (tableId: string, lines: Line[]) => {
+      const queued = await loadQueue()
+      const nextQueue = enqueueCloseTab(queued, { tableId, lines })
+      await saveQueue(nextQueue)
+      setPendingCount(nextQueue.length)
+      setHubError(null)
+    },
+    [],
+  )
+
+  const createTable = useCallback(
+    async (label: string): Promise<boolean> => {
+      const clean = label.trim()
+      if (!clean) return false
+
+      const activePairing = pairingRef.current
+      const mode = connectionRef.current
+
+      if (mode === 'unpaired' || !activePairing) {
+        const localTable: Table = {
+          id: uid(),
+          name: clean,
+          open: false,
+          synced: false,
+          lines: [],
+          hubTabId: null,
+        }
+        commitState((current) => ({
+          ...current,
+          tables: [...current.tables, localTable],
+        }))
+        setHubError(null)
+        return true
+      }
+
+      if (mode !== 'online') {
+        setHubError('Necesitás conexión con la PC')
+        return false
+      }
+
+      const client = createHubClient(activePairing)
+      try {
+        const dto = await client.createTable({ label: clean })
+        const hubTable: Table = {
+          id: dto.id,
+          name: dto.label,
+          open: Boolean(dto.occupied),
+          synced: true,
+          lines: [],
+          hubTabId: null,
+        }
+        commitState((current) => ({
+          ...current,
+          tables: [...current.tables, hubTable],
+          lastSyncAt: new Date().toISOString(),
+        }))
+        setHubError(null)
+        return true
+      } catch (err) {
+        if (err instanceof HubError && err.status >= 400 && err.status < 500) {
+          setHubError(err.message || 'No se pudo crear la mesa')
+          return false
+        }
+        updateConnection('offline')
+        setHubError('Necesitás conexión con la PC')
+        return false
+      }
+    },
+    [commitState, updateConnection],
+  )
+
+  const deleteTable = useCallback(
+    async (tableId: string): Promise<boolean> => {
+      const activePairing = pairingRef.current
+      const mode = connectionRef.current
+
+      if (mode === 'unpaired' || !activePairing) {
+        const target = stateRef.current.tables.find((t) => t.id === tableId)
+        if (target?.open) {
+          setHubError('La mesa tiene una cuenta abierta')
+          return false
+        }
+        commitState((current) => ({
+          ...current,
+          tables: current.tables.filter((t) => t.id !== tableId),
+        }))
+        setHubError(null)
+        return true
+      }
+
+      if (mode !== 'online') {
+        setHubError('Necesitás conexión con la PC')
+        return false
+      }
+
+      const client = createHubClient(activePairing)
+      try {
+        await client.deleteTable(tableId)
+        commitState((current) => ({
+          ...current,
+          tables: current.tables.filter((t) => t.id !== tableId),
+          lastSyncAt: new Date().toISOString(),
+        }))
+        setHubError(null)
+        return true
+      } catch (err) {
+        if (err instanceof HubError && err.status === 409) {
+          setHubError('La mesa tiene una cuenta abierta')
+          return false
+        }
+        if (err instanceof HubError && err.status >= 400 && err.status < 500) {
+          setHubError(err.message || 'No se pudo eliminar la mesa')
+          return false
+        }
+        updateConnection('offline')
+        setHubError('Necesitás conexión con la PC')
+        return false
+      }
+    },
+    [commitState, updateConnection],
+  )
+
+  const openTable = useCallback(
+    async (tableId: string): Promise<boolean> => {
+      const activePairing = pairingRef.current
+      const mode = connectionRef.current
+
+      if (mode === 'unpaired' || !activePairing) {
+        commitState((current) => ({
+          ...current,
+          tables: current.tables.map((t) => (t.id === tableId ? { ...t, open: true } : t)),
+        }))
+        setHubError(null)
+        return true
+      }
+
+      const existing = stateRef.current.tables.find((t) => t.id === tableId)
+      const currentLines = existing?.lines ?? []
+
+      if (mode !== 'online') {
+        commitState((current) => ({
+          ...current,
+          tables: current.tables.map((t) =>
+            t.id === tableId ? { ...t, open: true, synced: false } : t,
+          ),
+        }))
+        await queueSaveTabOffline(tableId, currentLines)
+        return false
+      }
+
+      const client = createHubClient(activePairing)
+      try {
+        const tab = await client.openTab({ table_id: tableId })
+        const hubLines: Line[] = (tab.items ?? []).map((it) => ({
+          productId: it.product_id,
+          qty: it.qty,
+        }))
+        commitState((current) => ({
+          ...current,
+          tables: current.tables.map((t) =>
+            t.id === tableId
+              ? { ...t, open: true, synced: true, hubTabId: tab.id, lines: hubLines }
+              : t,
+          ),
+          lastSyncAt: new Date().toISOString(),
+        }))
+        setHubError(null)
+        return true
+      } catch (err) {
+        if (err instanceof HubError && err.status >= 400 && err.status < 500) {
+          setHubError(err.message || 'No se pudo abrir la mesa')
+          return false
+        }
+        updateConnection('offline')
+        commitState((current) => ({
+          ...current,
+          tables: current.tables.map((t) =>
+            t.id === tableId ? { ...t, open: true, synced: false } : t,
+          ),
+        }))
+        await queueSaveTabOffline(tableId, currentLines)
+        return false
+      }
+    },
+    [commitState, queueSaveTabOffline, updateConnection],
+  )
+
+  const addItem = useCallback(
+    async (tableId: string, productId: string, qty: number): Promise<boolean> => {
+      if (!productId || !Number.isFinite(qty) || qty <= 0) return false
+
+      const activePairing = pairingRef.current
+      const mode = connectionRef.current
+      const target = stateRef.current.tables.find((t) => t.id === tableId)
+      if (!target) return false
+
+      const nextLines = mergeLines(target.lines, productId, qty)
+
+      if (mode === 'unpaired' || !activePairing) {
+        commitState((current) => ({
+          ...current,
+          tables: current.tables.map((t) =>
+            t.id === tableId ? { ...t, open: true, synced: false, lines: nextLines } : t,
+          ),
+        }))
+        setHubError(null)
+        return true
+      }
+
+      if (mode !== 'online') {
+        commitState((current) => ({
+          ...current,
+          tables: current.tables.map((t) =>
+            t.id === tableId ? { ...t, open: true, synced: false, lines: nextLines } : t,
+          ),
+        }))
+        await queueSaveTabOffline(tableId, nextLines)
+        return false
+      }
+
+      const client = createHubClient(activePairing)
+      try {
+        let tabId = target.hubTabId
+        if (!tabId) {
+          const opened = await client.openTab({ table_id: tableId })
+          tabId = opened.id
+        }
+        const updatedTab = await client.addItem(tabId, { product_id: productId, qty })
+        const hubLines: Line[] = (updatedTab.items ?? []).map((it) => ({
+          productId: it.product_id,
+          qty: it.qty,
+        }))
+        commitState((current) => ({
+          ...current,
+          tables: current.tables.map((t) =>
+            t.id === tableId
+              ? { ...t, open: true, synced: true, hubTabId: updatedTab.id, lines: hubLines }
+              : t,
+          ),
+          lastSyncAt: new Date().toISOString(),
+        }))
+        setHubError(null)
+        return true
+      } catch (err) {
+        if (err instanceof HubError && err.status >= 400 && err.status < 500) {
+          setHubError(err.message || 'No se pudo agregar el producto')
+          return false
+        }
+        updateConnection('offline')
+        commitState((current) => ({
+          ...current,
+          tables: current.tables.map((t) =>
+            t.id === tableId ? { ...t, open: true, synced: false, lines: nextLines } : t,
+          ),
+        }))
+        await queueSaveTabOffline(tableId, nextLines)
+        return false
+      }
+    },
+    [commitState, queueSaveTabOffline, updateConnection],
+  )
+
+  const closeTable = useCallback(
+    async (tableId: string): Promise<boolean> => {
+      const activePairing = pairingRef.current
+      const mode = connectionRef.current
+      const target = stateRef.current.tables.find((t) => t.id === tableId)
+      if (!target) return false
+
+      const localOrder =
+        target.lines.length > 0 ? buildLocalOrder(target, stateRef.current.products) : null
+
+      if (mode === 'unpaired' || !activePairing) {
+        commitState((current) => ({
+          ...current,
+          orders: localOrder ? [...current.orders, localOrder] : current.orders,
+          tables: current.tables.map((t) =>
+            t.id === tableId ? { ...t, open: false, synced: true, lines: [], hubTabId: null } : t,
+          ),
+        }))
+        setHubError(null)
+        return true
+      }
+
+      if (mode !== 'online') {
+        const closingLines = [...target.lines]
+        commitState((current) => ({
+          ...current,
+          orders: localOrder ? [...current.orders, localOrder] : current.orders,
+          tables: current.tables.map((t) =>
+            t.id === tableId
+              ? { ...t, open: false, synced: false, lines: [], hubTabId: null }
+              : t,
+          ),
+        }))
+        await queueCloseTabOffline(tableId, closingLines)
+        return false
+      }
+
+      const client = createHubClient(activePairing)
+      try {
+        let tabId = target.hubTabId
+        if (!tabId) {
+          const openTabs = await client.openTabs()
+          tabId = openTabs.find((t) => t.table_id === tableId)?.id ?? null
+        }
+
+        if (tabId) {
+          const sale = await client.closeTab(tabId)
+          const mappedSale = mapSales([sale], { [target.id]: target.name })[0]
+          const newOrder: Order = {
+            id: mappedSale.id,
+            table: mappedSale.table,
+            hour: mappedSale.hour,
+            items: mappedSale.items,
+            total: mappedSale.total,
+          }
+          commitState((current) => ({
+            ...current,
+            orders: [newOrder, ...current.orders.filter((o) => o.id !== newOrder.id)],
+            tables: current.tables.map((t) =>
+              t.id === tableId
+                ? { ...t, open: false, synced: true, lines: [], hubTabId: null }
+                : t,
+            ),
+            hubToday: current.hubToday
+              ? {
+                  ...current.hubToday,
+                  count: current.hubToday.count + 1,
+                  totalCents: current.hubToday.totalCents + sale.total_cents,
+                }
+              : current.hubToday,
+            lastSyncAt: new Date().toISOString(),
+          }))
+        } else {
+          commitState((current) => ({
+            ...current,
+            tables: current.tables.map((t) =>
+              t.id === tableId
+                ? { ...t, open: false, synced: true, lines: [], hubTabId: null }
+                : t,
+            ),
+            lastSyncAt: new Date().toISOString(),
+          }))
+        }
+        setHubError(null)
+        return true
+      } catch (err) {
+        if (err instanceof HubError && err.status >= 400 && err.status < 500) {
+          setHubError(err.message || 'No se pudo cerrar la mesa')
+          return false
+        }
+        updateConnection('offline')
+        const closingLines = [...target.lines]
+        commitState((current) => ({
+          ...current,
+          orders: localOrder ? [...current.orders, localOrder] : current.orders,
+          tables: current.tables.map((t) =>
+            t.id === tableId
+              ? { ...t, open: false, synced: false, lines: [], hubTabId: null }
+              : t,
+          ),
+        }))
+        await queueCloseTabOffline(tableId, closingLines)
+        return false
+      }
+    },
+    [commitState, queueCloseTabOffline, updateConnection],
+  )
 
   const store = useMemo<Store>(
     () => ({
@@ -503,8 +931,29 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       connect,
       disconnect,
       syncNow,
+      createTable,
+      deleteTable,
+      openTable,
+      addItem,
+      closeTable,
     }),
-    [state, pairing, connection, hubError, pendingCount, ready, update, connect, disconnect, syncNow],
+    [
+      state,
+      pairing,
+      connection,
+      hubError,
+      pendingCount,
+      ready,
+      update,
+      connect,
+      disconnect,
+      syncNow,
+      createTable,
+      deleteTable,
+      openTable,
+      addItem,
+      closeTable,
+    ],
   )
 
   return <StoreContext.Provider value={store}>{children}</StoreContext.Provider>

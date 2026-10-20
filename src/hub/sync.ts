@@ -100,10 +100,20 @@ async function executeOp(client: HubClient, op: PendingOp): Promise<void> {
         throw new HubError(400, 'invalid_payload', 'Invalid CLOSE_TAB payload')
       }
       const openTabs = await client.openTabs()
-      const tab = openTabs.find((t) => t.table_id === payload.tableId)
+      let tab = openTabs.find((t) => t.table_id === payload.tableId)
+      const hasLines = Array.isArray(payload.lines) && payload.lines.length > 0
       if (!tab) {
-        // Already closed on the hub; treat as done.
-        return
+        if (!hasLines) {
+          // Already closed on the hub; treat as done.
+          return
+        }
+        tab = await client.openTab({ table_id: payload.tableId })
+      }
+      if (hasLines && payload.lines) {
+        const deltas = computeTabDelta(payload.lines, tab.items ?? [])
+        for (const delta of deltas) {
+          await client.addItem(tab.id, delta)
+        }
       }
       await client.closeTab(tab.id)
       return

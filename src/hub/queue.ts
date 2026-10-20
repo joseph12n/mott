@@ -25,6 +25,7 @@ export type SaveTabPayload = {
 
 export type CloseTabPayload = {
   tableId: string
+  lines?: { productId: string; qty: number }[]
 }
 
 export type AddExpensePayload = {
@@ -123,4 +124,34 @@ export function removeOp(ops: PendingOp[], id: string): PendingOp[] {
 
 export function bumpAttempt(ops: PendingOp[], id: string): PendingOp[] {
   return ops.map((op) => (op.id === id ? { ...op, attempts: op.attempts + 1 } : op))
+}
+
+function opTableId(op: PendingOp): string | null {
+  if (!op.payload || typeof op.payload !== 'object') return null
+  const tableId = (op.payload as { tableId?: unknown }).tableId
+  return typeof tableId === 'string' ? tableId : null
+}
+
+export function enqueueSaveTab(ops: PendingOp[], payload: SaveTabPayload): PendingOp[] {
+  const filtered = ops.filter(
+    (op) => !(op.type === 'SAVE_TAB' && opTableId(op) === payload.tableId),
+  )
+  return enqueue(filtered, {
+    type: 'SAVE_TAB',
+    payload,
+  })
+}
+
+export function enqueueCloseTab(ops: PendingOp[], payload: CloseTabPayload): PendingOp[] {
+  const filtered = ops.filter(
+    (op) =>
+      !(
+        (op.type === 'SAVE_TAB' || op.type === 'CLOSE_TAB') &&
+        opTableId(op) === payload.tableId
+      ),
+  )
+  return enqueue(filtered, {
+    type: 'CLOSE_TAB',
+    payload,
+  })
 }

@@ -11,7 +11,7 @@ export type Table = {
   open: boolean
   synced: boolean
   lines: Line[]
-  hubTabId?: string | null
+  hubTabId: string | null
 }
 export type Order = {
   id: string
@@ -19,7 +19,6 @@ export type Order = {
   hour: number
   items: { name: string; qty: number; price: number }[]
   total: number
-  method?: string
 }
 export type Expense = { id: string; concept: string; amount: number; date: string }
 export type SupProduct = { id: string; name: string; price: number; unit: string }
