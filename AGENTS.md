@@ -225,21 +225,32 @@ Done:
 - **P2 — QR pairing (T2).** `expo-camera` (`~58.0.11`), `app.json` camera plugin
   with `recordAudioAndroid: false`, in-screen QR scanner in
   `src/views/Conexion.tsx`, README pairing docs.
+- **R1 — Test release `v0.5.0-rn-perf-qr`.** Version bumped to `0.5.0`; CI
+  published the prerelease APK from commit `cbdb91a` (Android run `39503095218`
+  succeeded in 8m36s).
 
 In progress (this session):
-- None (T1–T5 and P1/P2 complete).
+- None (T1–T5, P1/P2, and R1 complete).
 
 Next steps:
 - On-device test of the P1/P2 release APK: first-tap response, no duplicate
   submits, and QR pairing against a LAN `mitt` hub.
 - If the app still feels heavy on device after P1, evaluate local-first/optimistic
   operational writes and `FlatList` virtualization for large lists.
-- Bump the app version and publish a new release APK for testing.
+- Test APK: `v0.5.0-rn-perf-qr`
+  (https://github.com/joseph12n/mott/releases/tag/v0.5.0-rn-perf-qr).
 - Open PR for `feat/react-native-app` and verify the GitHub Actions release APK build.
 
 ## 9. Session log
 
 Newest first. Each entry: date, work unit, what changed, verification, next step.
+
+- **2026-10-20 — R1 (test release).** Bumped `package.json`, `package-lock.json`,
+  and `app.json` to `0.5.0` (commit `cbdb91a`), pushed the branch and tag
+  `v0.5.0-rn-perf-qr`. CI Android run `39503095218` succeeded and published the
+  prerelease APK `mott-v0.5.0-rn-perf-qr.apk` (91,538,812 bytes).
+  Release: https://github.com/joseph12n/mott/releases/tag/v0.5.0-rn-perf-qr
+  Next: on-device test of first-tap response, duplicate prevention, and QR pairing.
 
 - **2026-10-20 — P2 (T2 QR).** Added `expo-camera` (`~58.0.11`) and the in-screen
   QR scanner in `Conexión`: `CameraView` with QR `barcodeScannerSettings`,
