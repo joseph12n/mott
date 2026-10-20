@@ -27,12 +27,7 @@ mottandmittdesing/dist/
 .idea/
 .vscode/
 .DS_Store
-.kotlin/
 
 # Repo-local planning mirror (kept in Engram, not in git)
 /odd/
 /.atl/
-
-# Gradle leftovers from the old Kotlin project
-.gradle/
-build/
