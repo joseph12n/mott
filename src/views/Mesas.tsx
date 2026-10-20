@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Text, useWindowDimensions, View } from 'react-native'
 
 import { money } from '../data'
@@ -17,6 +17,13 @@ export default function Mesas() {
   const [armedClose, setArmedClose] = useState(false)
   const [armedDelete, setArmedDelete] = useState(false)
   const [queuedNotice, setQueuedNotice] = useState(false)
+  const [creatingTable, setCreatingTable] = useState(false)
+  const [openingTableId, setOpeningTableId] = useState<string | null>(null)
+  const [deletingTableId, setDeletingTableId] = useState<string | null>(null)
+  const [addingItem, setAddingItem] = useState(false)
+  const [closingTableId, setClosingTableId] = useState<string | null>(null)
+  const creatingRef = useRef(false)
+  const tableActionRef = useRef(false)
 
   const price = (id: string) => s.products.find((x) => x.id === id)?.price ?? 0
   const total = (lines: { productId: string; qty: number }[]) =>
@@ -26,6 +33,13 @@ export default function Mesas() {
   const inProgress = openTables.reduce((a, t) => a + total(t.lines), 0)
   const table = s.tables.find((t) => t.id === selected) ?? null
   const split = width >= BREAKPOINTS.twoPane
+  const tableBusy = Boolean(
+    table &&
+      (openingTableId === table.id ||
+        deletingTableId === table.id ||
+        closingTableId === table.id ||
+        addingItem),
+  )
 
   const statusPill = (() => {
     if (s.connection === 'online') {
@@ -50,55 +64,93 @@ export default function Mesas() {
   })()
 
   const handleCreateTable = async () => {
+    if (creatingTable || creatingRef.current) return
     const label = newName.trim()
     if (!label) return
+    creatingRef.current = true
+    setCreatingTable(true)
     setQueuedNotice(false)
-    const ok = await s.createTable(label)
-    if (ok) {
-      setNewName('')
+    try {
+      const ok = await s.createTable(label)
+      if (ok) {
+        setNewName('')
+      }
+    } finally {
+      creatingRef.current = false
+      setCreatingTable(false)
     }
   }
 
   const handleOpenTable = async (tableId: string) => {
+    if (openingTableId || deletingTableId || tableActionRef.current) return
+    tableActionRef.current = true
+    setOpeningTableId(tableId)
     setQueuedNotice(false)
-    const ok = await s.openTable(tableId)
-    if (!ok && s.connection !== 'online') {
-      setQueuedNotice(true)
+    try {
+      const ok = await s.openTable(tableId)
+      if (!ok && s.connection !== 'online') {
+        setQueuedNotice(true)
+      }
+    } finally {
+      tableActionRef.current = false
+      setOpeningTableId(null)
     }
   }
 
   const handleDeleteTable = async (tableId: string) => {
+    if (deletingTableId || openingTableId || tableActionRef.current) return
+    tableActionRef.current = true
+    setDeletingTableId(tableId)
     setQueuedNotice(false)
-    const ok = await s.deleteTable(tableId)
-    setArmedDelete(false)
-    if (ok) {
-      setSelected(null)
+    try {
+      const ok = await s.deleteTable(tableId)
+      setArmedDelete(false)
+      if (ok) {
+        setSelected(null)
+      }
+    } finally {
+      tableActionRef.current = false
+      setDeletingTableId(null)
     }
   }
 
   const handleAddItem = async () => {
-    if (!table || !pick.productId) return
+    if (!table || !pick.productId || addingItem || closingTableId || tableActionRef.current) return
+    tableActionRef.current = true
+    setAddingItem(true)
     setQueuedNotice(false)
-    const ok = await s.addItem(table.id, pick.productId, pick.qty)
-    if (ok) {
-      setPick({ productId: '', qty: 1 })
-    } else if (s.connection !== 'online') {
-      setPick({ productId: '', qty: 1 })
-      setQueuedNotice(true)
+    try {
+      const ok = await s.addItem(table.id, pick.productId, pick.qty)
+      if (ok) {
+        setPick({ productId: '', qty: 1 })
+      } else if (s.connection !== 'online') {
+        setPick({ productId: '', qty: 1 })
+        setQueuedNotice(true)
+      }
+    } finally {
+      tableActionRef.current = false
+      setAddingItem(false)
     }
   }
 
   const handleCloseTable = async () => {
-    if (!table) return
+    if (!table || closingTableId || addingItem || tableActionRef.current) return
     if (!armedClose) {
       setArmedClose(true)
       return
     }
+    tableActionRef.current = true
+    setClosingTableId(table.id)
     setQueuedNotice(false)
-    const ok = await s.closeTable(table.id)
-    setArmedClose(false)
-    if (ok || s.connection !== 'online') {
-      setSelected(null)
+    try {
+      const ok = await s.closeTable(table.id)
+      setArmedClose(false)
+      if (ok || s.connection !== 'online') {
+        setSelected(null)
+      }
+    } finally {
+      tableActionRef.current = false
+      setClosingTableId(null)
     }
   }
 
@@ -119,7 +171,8 @@ export default function Mesas() {
             p={p}
             label="AGREGAR MESA"
             variant="ghost"
-            disabled={!newName.trim()}
+            loading={creatingTable}
+            disabled={!newName.trim() || creatingTable}
             onPress={() => void handleCreateTable()}
           />
           {s.hubError ? (
@@ -180,6 +233,7 @@ export default function Mesas() {
           <LinkBtn
             p={p}
             label="← VOLVER"
+            disabled={tableBusy}
             onPress={() => {
               setSelected(null)
               setArmedClose(false)
@@ -201,6 +255,8 @@ export default function Mesas() {
           <Btn
             p={p}
             label="ABRIR MESA"
+            loading={openingTableId === table.id}
+            disabled={tableBusy}
             onPress={() => void handleOpenTable(table.id)}
           />
           <View style={{ height: 10 }} />
@@ -210,12 +266,26 @@ export default function Mesas() {
                 p={p}
                 label="CONFIRMAR ELIMINAR"
                 variant="danger"
+                loading={deletingTableId === table.id}
+                disabled={tableBusy}
                 onPress={() => void handleDeleteTable(table.id)}
               />
-              <Btn p={p} label="CANCELAR" variant="ghost" onPress={() => setArmedDelete(false)} />
+              <Btn
+                p={p}
+                label="CANCELAR"
+                variant="ghost"
+                disabled={tableBusy}
+                onPress={() => setArmedDelete(false)}
+              />
             </View>
           ) : (
-            <Btn p={p} label="Eliminar mesa" variant="ghost" onPress={() => setArmedDelete(true)} />
+            <Btn
+              p={p}
+              label="Eliminar mesa"
+              variant="ghost"
+              disabled={tableBusy}
+              onPress={() => setArmedDelete(true)}
+            />
           )}
           {s.hubError ? (
             <Text style={[ui.sub, { color: p.berry, fontWeight: '700', marginTop: 10 }]}>
@@ -287,6 +357,7 @@ export default function Mesas() {
                       p={p}
                       label="−"
                       variant="ghost"
+                      disabled={tableBusy}
                       style={{ minWidth: 48 }}
                       onPress={() => setPick((c) => ({ ...c, qty: Math.max(1, c.qty - 1) }))}
                     />
@@ -295,6 +366,7 @@ export default function Mesas() {
                       p={p}
                       label="+"
                       variant="ghost"
+                      disabled={tableBusy}
                       style={{ minWidth: 48 }}
                       onPress={() => setPick((c) => ({ ...c, qty: c.qty + 1 }))}
                     />
@@ -304,6 +376,7 @@ export default function Mesas() {
                     p={p}
                     label="ELEGIR"
                     color={p.brand}
+                    disabled={tableBusy}
                     onPress={() => setPick({ productId: prod.id, qty: 1 })}
                   />
                 )}
@@ -312,7 +385,13 @@ export default function Mesas() {
           })}
         </View>
         <View style={{ marginTop: 12, gap: 8 }}>
-          <Btn p={p} label="AGREGAR" disabled={!pick.productId} onPress={() => void handleAddItem()} />
+          <Btn
+            p={p}
+            label="AGREGAR"
+            loading={addingItem}
+            disabled={!pick.productId || tableBusy}
+            onPress={() => void handleAddItem()}
+          />
           {table.open ? (
             armedClose ? (
               <View style={{ gap: 8 }}>
@@ -320,15 +399,24 @@ export default function Mesas() {
                   p={p}
                   label={`CONFIRMAR CIERRE · ${money(total(table.lines))}`}
                   variant="danger"
+                  loading={closingTableId === table.id}
+                  disabled={tableBusy}
                   onPress={() => void handleCloseTable()}
                 />
-                <Btn p={p} label="CANCELAR" variant="ghost" onPress={() => setArmedClose(false)} />
+                <Btn
+                  p={p}
+                  label="CANCELAR"
+                  variant="ghost"
+                  disabled={tableBusy}
+                  onPress={() => setArmedClose(false)}
+                />
               </View>
             ) : (
               <Btn
                 p={p}
                 label="CERRAR MESA"
                 variant="danger"
+                disabled={tableBusy}
                 onPress={() => void handleCloseTable()}
               />
             )

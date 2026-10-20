@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Text, useWindowDimensions, View } from 'react-native'
 
 import { ConnectionState, useStore } from '../store'
@@ -44,11 +44,15 @@ export default function Conexion({ go }: { go: (v: Target) => void }) {
   const [manualUrl, setManualUrl] = useState(s.pairing?.baseUrl ?? 'http://192.168.1.34:8080')
   const [manualToken, setManualToken] = useState('')
   const [armedDisconnect, setArmedDisconnect] = useState(false)
+  const [connecting, setConnecting] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [disconnecting, setDisconnecting] = useState(false)
+  const busyRef = useRef(false)
 
   const split = width >= BREAKPOINTS.twoPane
   const badge = connectionBadge(s.connection, p)
   const isPaired = Boolean(s.pairing)
-  const isBusy = s.connection === 'connecting'
+  const isBusy = s.connection === 'connecting' || connecting || syncing || disconnecting
 
   const steps = [
     'Abrí la sección Conexión en el servidor de la PC.',
@@ -69,12 +73,45 @@ export default function Conexion({ go }: { go: (v: Target) => void }) {
     ['GET', '/api/branding'],
   ]
 
-  const handleConnect = () => {
+  const handleConnect = async () => {
+    if (isBusy || busyRef.current) return
+    busyRef.current = true
+    setConnecting(true)
     setArmedDisconnect(false)
-    if (manual) {
-      void s.connect({ baseUrl: manualUrl, token: manualToken })
-    } else {
-      void s.connect(codeInput)
+    try {
+      if (manual) {
+        await s.connect({ baseUrl: manualUrl, token: manualToken })
+      } else {
+        await s.connect(codeInput)
+      }
+    } finally {
+      busyRef.current = false
+      setConnecting(false)
+    }
+  }
+
+  const handleSync = async () => {
+    if (!isPaired || isBusy || busyRef.current) return
+    busyRef.current = true
+    setSyncing(true)
+    try {
+      await s.syncNow()
+    } finally {
+      busyRef.current = false
+      setSyncing(false)
+    }
+  }
+
+  const handleDisconnect = async () => {
+    if (isBusy || busyRef.current) return
+    busyRef.current = true
+    setDisconnecting(true)
+    try {
+      setArmedDisconnect(false)
+      await s.disconnect()
+    } finally {
+      busyRef.current = false
+      setDisconnecting(false)
     }
   }
 
@@ -135,8 +172,9 @@ export default function Conexion({ go }: { go: (v: Target) => void }) {
         <Btn
           p={p}
           label="SINCRONIZAR AHORA"
+          loading={syncing || (s.connection === 'connecting' && !connecting)}
           disabled={!isPaired || isBusy}
-          onPress={() => void s.syncNow()}
+          onPress={() => void handleSync()}
         />
         {isPaired ? (
           armedDisconnect ? (
@@ -145,15 +183,15 @@ export default function Conexion({ go }: { go: (v: Target) => void }) {
                 p={p}
                 label="CONFIRMAR DESVINCULAR"
                 variant="danger"
-                onPress={() => {
-                  setArmedDisconnect(false)
-                  void s.disconnect()
-                }}
+                loading={disconnecting}
+                disabled={isBusy}
+                onPress={() => void handleDisconnect()}
               />
               <Btn
                 p={p}
                 label="CANCELAR"
                 variant="ghost"
+                disabled={isBusy}
                 onPress={() => setArmedDisconnect(false)}
               />
             </View>
@@ -162,6 +200,7 @@ export default function Conexion({ go }: { go: (v: Target) => void }) {
               p={p}
               label="DESVINCULAR"
               variant="ghost"
+              disabled={isBusy}
               onPress={() => setArmedDisconnect(true)}
             />
           )
@@ -178,6 +217,7 @@ export default function Conexion({ go }: { go: (v: Target) => void }) {
           p={p}
           label={manual ? 'Usar código' : 'Campos manuales'}
           color={p.brand}
+          disabled={isBusy}
           onPress={() => setManual((v) => !v)}
         />
       </View>
@@ -219,8 +259,9 @@ export default function Conexion({ go }: { go: (v: Target) => void }) {
         <Btn
           p={p}
           label="VINCULAR"
+          loading={connecting}
           disabled={!canSubmit || isBusy}
-          onPress={handleConnect}
+          onPress={() => void handleConnect()}
         />
       </View>
     </Card>

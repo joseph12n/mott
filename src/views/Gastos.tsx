@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Text, View } from 'react-native'
 
 import { formatDay, isToday, money } from '../data'
@@ -11,18 +11,28 @@ export default function Gastos() {
   const p = usePalette()
   const [concept, setConcept] = useState('')
   const [amount, setAmount] = useState('')
+  const [adding, setAdding] = useState(false)
+  const addingRef = useRef(false)
 
   const todayTotal = s.expenses
     .filter((e) => isToday(e.date))
     .reduce((a, e) => a + e.amount, 0)
 
   const handleAdd = async () => {
+    if (adding || addingRef.current) return
     const numAmount = Number(amount)
     if (!concept.trim() || !numAmount || numAmount <= 0) return
-    const ok = await s.addExpense(concept.trim(), numAmount)
-    if (ok) {
-      setConcept('')
-      setAmount('')
+    addingRef.current = true
+    setAdding(true)
+    try {
+      const ok = await s.addExpense(concept.trim(), numAmount)
+      if (ok) {
+        setConcept('')
+        setAmount('')
+      }
+    } finally {
+      addingRef.current = false
+      setAdding(false)
     }
   }
 
@@ -47,7 +57,8 @@ export default function Gastos() {
           <Btn
             p={p}
             label="REGISTRAR GASTO"
-            disabled={!concept.trim() || !Number(amount) || Number(amount) <= 0}
+            loading={adding}
+            disabled={!concept.trim() || !Number(amount) || Number(amount) <= 0 || adding}
             onPress={() => void handleAdd()}
           />
           <Text style={[ui.note, { color: p.mute }]}>

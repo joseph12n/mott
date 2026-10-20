@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Image, Text, useWindowDimensions, View } from 'react-native'
 
 import { presets } from '../presets'
@@ -15,6 +15,10 @@ export default function Personalizar() {
   const [accentDraft, setAccentDraft] = useState(s.accent)
   const [accent2Draft, setAccent2Draft] = useState(s.accent2)
   const [logoFailed, setLogoFailed] = useState(false)
+  const [savingName, setSavingName] = useState(false)
+  const [savingColors, setSavingColors] = useState(false)
+  const [savingPresetId, setSavingPresetId] = useState<string | null>(null)
+  const brandingBusyRef = useRef(false)
 
   useEffect(() => {
     setName(s.name)
@@ -39,6 +43,50 @@ export default function Personalizar() {
 
   const colorsChanged =
     normalizeHex(accentDraft) !== brandColor || normalizeHex(accent2Draft) !== accentColor
+  const brandingBusy = savingName || savingColors || savingPresetId !== null
+
+  const handleSaveName = async () => {
+    const trimmed = name.trim()
+    if (!trimmed || trimmed === s.name || brandingBusy || brandingBusyRef.current) return
+    brandingBusyRef.current = true
+    setSavingName(true)
+    try {
+      await s.saveBranding({ name: trimmed })
+    } finally {
+      brandingBusyRef.current = false
+      setSavingName(false)
+    }
+  }
+
+  const handleSaveColors = async () => {
+    if (!colorsChanged || brandingBusy || brandingBusyRef.current) return
+    brandingBusyRef.current = true
+    setSavingColors(true)
+    try {
+      await s.saveBranding({
+        accent: normalizeHex(accentDraft),
+        accent2: normalizeHex(accent2Draft),
+      })
+    } finally {
+      brandingBusyRef.current = false
+      setSavingColors(false)
+    }
+  }
+
+  const handleApplyPreset = async (presetId: string, brand: string, accent: string) => {
+    if (brandingBusy || brandingBusyRef.current) return
+    brandingBusyRef.current = true
+    setSavingPresetId(presetId)
+    try {
+      await s.saveBranding({
+        accent: brand,
+        accent2: accent,
+      })
+    } finally {
+      brandingBusyRef.current = false
+      setSavingPresetId(null)
+    }
+  }
 
   const identity = (
     <View style={{ gap: 16 }}>
@@ -86,8 +134,9 @@ export default function Personalizar() {
           <Btn
             p={p}
             label="GUARDAR NOMBRE"
-            disabled={!name.trim() || name.trim() === s.name}
-            onPress={() => void s.saveBranding({ name: name.trim() })}
+            loading={savingName}
+            disabled={!name.trim() || name.trim() === s.name || brandingBusy}
+            onPress={() => void handleSaveName()}
           />
           {s.hubError ? (
             <Text style={[ui.sub, { color: p.berry, fontWeight: '700' }]}>{s.hubError}</Text>
@@ -157,13 +206,9 @@ export default function Personalizar() {
           <Btn
             p={p}
             label="GUARDAR COLORES"
-            disabled={!colorsChanged}
-            onPress={() =>
-              void s.saveBranding({
-                accent: normalizeHex(accentDraft),
-                accent2: normalizeHex(accent2Draft),
-              })
-            }
+            loading={savingColors}
+            disabled={!colorsChanged || brandingBusy}
+            onPress={() => void handleSaveColors()}
           />
           <Text style={[ui.note, { color: p.mute }]}>
             Valores en hexadecimal; tocá Guardar colores para aplicar la paleta.
@@ -214,13 +259,9 @@ export default function Personalizar() {
                   p={p}
                   label={active ? 'EN USO' : 'USAR PRESET'}
                   variant={active ? 'ghost' : 'primary'}
-                  disabled={active}
-                  onPress={() =>
-                    void s.saveBranding({
-                      accent: preset.brand,
-                      accent2: preset.accent,
-                    })
-                  }
+                  loading={savingPresetId === preset.id}
+                  disabled={active || brandingBusy}
+                  onPress={() => void handleApplyPreset(preset.id, preset.brand, preset.accent)}
                 />
               </View>
             </View>

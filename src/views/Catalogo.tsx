@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Text, View } from 'react-native'
 
 import { money } from '../data'
@@ -12,6 +12,10 @@ export default function Catalogo() {
   const [name, setName] = useState('')
   const [price, setPrice] = useState('')
   const [category, setCategory] = useState('Carta')
+  const [adding, setAdding] = useState(false)
+  const [busyProducts, setBusyProducts] = useState<Record<string, boolean>>({})
+  const addingRef = useRef(false)
+  const busyProductsRef = useRef<Record<string, boolean>>({})
 
   const categories = useMemo(
     () => [...new Set(s.products.map((x) => x.category || 'Carta'))],
@@ -23,12 +27,36 @@ export default function Catalogo() {
   )
 
   const handleAdd = async () => {
+    if (adding || addingRef.current) return
     const numPrice = Number(price)
     if (!name.trim() || !numPrice || numPrice <= 0) return
-    const ok = await s.createProduct(name.trim(), numPrice, category.trim() || 'Carta')
-    if (ok) {
-      setName('')
-      setPrice('')
+    addingRef.current = true
+    setAdding(true)
+    try {
+      const ok = await s.createProduct(name.trim(), numPrice, category.trim() || 'Carta')
+      if (ok) {
+        setName('')
+        setPrice('')
+      }
+    } finally {
+      addingRef.current = false
+      setAdding(false)
+    }
+  }
+
+  const handleToggleAvailable = async (id: string, nextAvailable: boolean) => {
+    if (busyProducts[id] || busyProductsRef.current[id]) return
+    busyProductsRef.current[id] = true
+    setBusyProducts((prev) => ({ ...prev, [id]: true }))
+    try {
+      await s.setProductAvailable(id, nextAvailable)
+    } finally {
+      delete busyProductsRef.current[id]
+      setBusyProducts((prev) => {
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
     }
   }
 
@@ -48,7 +76,8 @@ export default function Catalogo() {
           <Btn
             p={p}
             label="AGREGAR PRODUCTO"
-            disabled={!name.trim() || !Number(price) || Number(price) <= 0}
+            loading={adding}
+            disabled={!name.trim() || !Number(price) || Number(price) <= 0 || adding}
             onPress={() => void handleAdd()}
           />
           {s.hubError ? (
@@ -64,6 +93,7 @@ export default function Catalogo() {
             .filter((x) => (x.category || 'Carta') === cat)
             .map((x) => {
               const available = s.productAvailable[x.id] !== false
+              const productBusy = Boolean(busyProducts[x.id])
               return (
                 <Card key={x.id} p={p} style={available ? undefined : { opacity: 0.72 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
@@ -100,7 +130,9 @@ export default function Catalogo() {
                       p={p}
                       label={available ? 'DAR DE BAJA' : 'VOLVER A LA CARTA'}
                       variant="ghost"
-                      onPress={() => void s.setProductAvailable(x.id, !available)}
+                      loading={productBusy}
+                      disabled={productBusy}
+                      onPress={() => void handleToggleAvailable(x.id, !available)}
                     />
                   </View>
                 </Card>

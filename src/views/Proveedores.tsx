@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Text, useWindowDimensions, View } from 'react-native'
 
 import { useStore } from '../store'
@@ -14,9 +14,15 @@ export default function Proveedores() {
   const [form, setForm] = useState({ name: '', phone: '', note: '' })
   const [editForm, setEditForm] = useState({ name: '', phone: '', note: '' })
   const [armedDelete, setArmedDelete] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [updating, setUpdating] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const creatingRef = useRef(false)
+  const detailBusyRef = useRef(false)
 
   const supplier = s.suppliers.find((x) => x.id === sel) ?? null
   const split = width >= BREAKPOINTS.twoPane
+  const detailBusy = updating || deleting
 
   useEffect(() => {
     if (supplier) {
@@ -30,28 +36,49 @@ export default function Proveedores() {
   }, [supplier?.id, supplier?.name, supplier?.phone, supplier?.note])
 
   const handleCreate = async () => {
-    if (!form.name.trim()) return
-    const ok = await s.createSupplier(form.name, form.phone, form.note)
-    if (ok) {
-      setForm({ name: '', phone: '', note: '' })
+    if (!form.name.trim() || creating || creatingRef.current) return
+    creatingRef.current = true
+    setCreating(true)
+    try {
+      const ok = await s.createSupplier(form.name, form.phone, form.note)
+      if (ok) {
+        setForm({ name: '', phone: '', note: '' })
+      }
+    } finally {
+      creatingRef.current = false
+      setCreating(false)
     }
   }
 
   const handleUpdate = async () => {
-    if (!supplier || !editForm.name.trim()) return
-    await s.updateSupplier(supplier.id, {
-      name: editForm.name,
-      phone: editForm.phone,
-      note: editForm.note,
-    })
+    if (!supplier || !editForm.name.trim() || detailBusy || detailBusyRef.current) return
+    detailBusyRef.current = true
+    setUpdating(true)
+    try {
+      await s.updateSupplier(supplier.id, {
+        name: editForm.name,
+        phone: editForm.phone,
+        note: editForm.note,
+      })
+    } finally {
+      detailBusyRef.current = false
+      setUpdating(false)
+    }
   }
 
   const handleDelete = async () => {
-    if (!supplier) return
-    const ok = await s.deleteSupplier(supplier.id)
-    setArmedDelete(false)
-    if (ok) {
-      setSel(null)
+    if (!supplier || detailBusy || detailBusyRef.current) return
+    detailBusyRef.current = true
+    setDeleting(true)
+    try {
+      const ok = await s.deleteSupplier(supplier.id)
+      setArmedDelete(false)
+      if (ok) {
+        setSel(null)
+      }
+    } finally {
+      detailBusyRef.current = false
+      setDeleting(false)
     }
   }
 
@@ -93,7 +120,8 @@ export default function Proveedores() {
           <Btn
             p={p}
             label="AGREGAR PROVEEDOR"
-            disabled={!form.name.trim()}
+            loading={creating}
+            disabled={!form.name.trim() || creating}
             onPress={() => void handleCreate()}
           />
           {s.hubError ? (
@@ -133,7 +161,13 @@ export default function Proveedores() {
               ) : null}
             </View>
             <View style={{ marginTop: 6 }}>
-              <LinkBtn p={p} label="VER FICHA" color={p.brand} onPress={() => setSel(x.id)} />
+              <LinkBtn
+                p={p}
+                label="VER FICHA"
+                color={p.brand}
+                disabled={detailBusy}
+                onPress={() => setSel(x.id)}
+              />
             </View>
           </Card>
         ))}
@@ -151,6 +185,7 @@ export default function Proveedores() {
           <LinkBtn
             p={p}
             label="← VOLVER"
+            disabled={detailBusy}
             onPress={() => {
               setSel(null)
               setArmedDelete(false)
@@ -198,7 +233,8 @@ export default function Proveedores() {
           <Btn
             p={p}
             label="GUARDAR CAMBIOS"
-            disabled={!editForm.name.trim() || !hasEditChanges}
+            loading={updating}
+            disabled={!editForm.name.trim() || !hasEditChanges || detailBusy}
             onPress={() => void handleUpdate()}
           />
         </View>
@@ -210,12 +246,15 @@ export default function Proveedores() {
                 p={p}
                 label="CONFIRMAR ELIMINAR"
                 variant="danger"
+                loading={deleting}
+                disabled={detailBusy}
                 onPress={() => void handleDelete()}
               />
               <Btn
                 p={p}
                 label="CANCELAR"
                 variant="ghost"
+                disabled={detailBusy}
                 onPress={() => setArmedDelete(false)}
               />
             </>
@@ -224,6 +263,7 @@ export default function Proveedores() {
               p={p}
               label="ELIMINAR PROVEEDOR"
               variant="ghost"
+              disabled={detailBusy}
               onPress={() => setArmedDelete(true)}
             />
           )}

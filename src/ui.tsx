@@ -1,5 +1,14 @@
 import React from 'react'
-import { StyleSheet, Text, TextInput, TextStyle, View, ViewStyle } from 'react-native'
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  TextStyle,
+  View,
+  ViewStyle,
+} from 'react-native'
 
 import { Palette, radius } from './theme'
 
@@ -15,13 +24,21 @@ export const styles = StyleSheet.create({
   btn: {
     minHeight: 48,
     paddingHorizontal: 16,
+    paddingVertical: 10,
     borderRadius: radius.control,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
+    overflow: 'hidden',
   },
   btnLabel: { fontSize: 14, fontWeight: '700' },
+  linkBtn: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -62,6 +79,8 @@ export function Btn({
   onPress,
   variant = 'primary',
   disabled,
+  loading,
+  busy,
   style,
 }: {
   p: Palette
@@ -69,28 +88,40 @@ export function Btn({
   onPress: () => void
   variant?: 'primary' | 'ghost' | 'danger'
   disabled?: boolean
+  loading?: boolean
+  busy?: boolean
   style?: ViewStyle
 }) {
+  const isBusy = Boolean(loading || busy)
+  const isDisabled = Boolean(disabled || isBusy)
   const background =
     variant === 'primary' ? p.brand : variant === 'danger' ? p.berry : p.surface
   const border = variant === 'ghost' ? p.line : background
   const color = variant === 'primary' ? p.onBrand : variant === 'danger' ? '#ffffff' : p.ink
+  const rippleColor = variant === 'ghost' ? p.line : 'rgba(255, 255, 255, 0.24)'
   return (
-    <View
-      style={[
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled: isDisabled, busy: isBusy }}
+      disabled={isDisabled}
+      onPress={isDisabled ? undefined : onPress}
+      android_ripple={isDisabled ? undefined : { color: rippleColor }}
+      style={({ pressed }) => [
         styles.btn,
-        { backgroundColor: background, borderColor: border, borderWidth: 1, opacity: disabled ? 0.4 : 1 },
+        {
+          backgroundColor: background,
+          borderColor: border,
+          borderWidth: 1,
+          opacity: isDisabled ? 0.4 : pressed ? 0.75 : 1,
+        },
         style,
       ]}
     >
-      <Text
-        onPress={disabled ? undefined : onPress}
-        suppressHighlighting
-        style={[styles.btnLabel, { color, paddingVertical: 14, paddingHorizontal: 4 }]}
-      >
+      {isBusy ? <ActivityIndicator size="small" color={color} /> : null}
+      <Text style={[styles.btnLabel, { color }]} numberOfLines={1}>
         {label}
       </Text>
-    </View>
+    </Pressable>
   )
 }
 
@@ -100,24 +131,41 @@ export function LinkBtn({
   label,
   onPress,
   color,
+  disabled,
+  loading,
+  busy,
   style,
 }: {
   p: Palette
   label: string
   onPress: () => void
   color?: string
+  disabled?: boolean
+  loading?: boolean
+  busy?: boolean
   style?: ViewStyle
 }) {
+  const isBusy = Boolean(loading || busy)
+  const isDisabled = Boolean(disabled || isBusy)
+  const textColor = color ?? p.ink
   return (
-    <View style={[{ minHeight: 48, justifyContent: 'center' }, style]}>
-      <Text
-        onPress={onPress}
-        suppressHighlighting
-        style={[styles.btnLabel, { color: color ?? p.ink, paddingVertical: 12 }]}
-      >
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled: isDisabled, busy: isBusy }}
+      disabled={isDisabled}
+      onPress={isDisabled ? undefined : onPress}
+      android_ripple={isDisabled ? undefined : { color: p.line }}
+      style={({ pressed }) => [
+        styles.linkBtn,
+        { opacity: isDisabled ? 0.4 : pressed ? 0.65 : 1 },
+        style,
+      ]}
+    >
+      {isBusy ? <ActivityIndicator size="small" color={textColor} /> : null}
+      <Text style={[styles.btnLabel, { color: textColor, paddingVertical: 12 }]} numberOfLines={1}>
         {label}
       </Text>
-    </View>
+    </Pressable>
   )
 }
 
