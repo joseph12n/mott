@@ -85,7 +85,7 @@ export function createHubClient(options: {
   const baseUrl = normalizeBaseUrl(options.baseUrl)
   const token = options.token.trim()
   const fetchImpl = options.fetchImpl ?? fetch
-  const timeoutMs = options.timeoutMs ?? 15_000
+  const timeoutMs = options.timeoutMs ?? 4_000
 
   async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const cleanPath = path.startsWith('/') ? path : `/${path}`

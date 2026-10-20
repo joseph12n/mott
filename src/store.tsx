@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { AppState } from 'react-native'
 
 import {
   Expense,
@@ -87,6 +88,19 @@ type Persisted = {
 const STORAGE_KEY = 'mott:app-state:v1'
 const LEGACY_STORAGE_KEY = 'mitt:app-state:v1'
 const PAIRING_KEY = 'mott:pairing:v1'
+const MAX_PERSISTED_ORDERS = 100
+const PERSIST_DEBOUNCE_MS = 400
+const FOREGROUND_CHECK_TIMEOUT_MS = 2_000
+
+function toPersistedSnapshot(next: Persisted, isPaired: boolean): Persisted {
+  if (next.orders.length <= MAX_PERSISTED_ORDERS) return next
+  return {
+    ...next,
+    orders: isPaired
+      ? next.orders.slice(0, MAX_PERSISTED_ORDERS)
+      : next.orders.slice(-MAX_PERSISTED_ORDERS),
+  }
+}
 
 const DEFAULT_AVAILABLE = (): Record<string, boolean> => {
   const map: Record<string, boolean> = {}
@@ -357,10 +371,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setConnection(next)
   }, [])
 
-  // Writes are coalesced (one pending write at a time) so rapid taps do not
-  // queue dozens of whole-state writes.
+  // Writes are debounced (~400ms) and coalesced (one pending write at a time)
+  // so rapid taps do not serialize or write whole state on the tap path.
   const pendingWrite = useRef<Persisted | null>(null)
   const writing = useRef(false)
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   const flush = useCallback(async () => {
     if (writing.current) return
     writing.current = true
@@ -377,37 +393,97 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
-  const persist = useCallback(
-    (next: Persisted) => {
-      pendingWrite.current = next
+  const commitState = useCallback((updater: (current: Persisted) => Persisted) => {
+    setState((current) => {
+      const next = updater(current)
+      stateRef.current = next
+      return next
+    })
+  }, [])
+
+  const update = useCallback((patch: Partial<Persisted>) => {
+    setState((current) => {
+      const next = { ...current, ...patch }
+      stateRef.current = next
+      return next
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!ready) return
+    pendingWrite.current = toPersistedSnapshot(state, pairingRef.current !== null)
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current)
+    }
+    debounceTimer.current = setTimeout(() => {
+      debounceTimer.current = null
       void flush()
-    },
-    [flush],
-  )
+    }, PERSIST_DEBOUNCE_MS)
+    return () => {
+      if (debounceTimer.current) {
+        clearTimeout(debounceTimer.current)
+        debounceTimer.current = null
+      }
+    }
+  }, [state, ready, flush])
 
-  const commitState = useCallback(
-    (updater: (current: Persisted) => Persisted) => {
-      setState((current) => {
-        const next = updater(current)
-        stateRef.current = next
-        persist(next)
-        return next
-      })
-    },
-    [persist],
-  )
+  useEffect(() => {
+    let alive = true
+    let checkSeq = 0
 
-  const update = useCallback(
-    (patch: Partial<Persisted>) => {
-      setState((current) => {
-        const next = { ...current, ...patch }
-        stateRef.current = next
-        if (ready) persist(next)
-        return next
-      })
-    },
-    [persist, ready],
-  )
+    const sub = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'background' || nextAppState === 'inactive') {
+        if (debounceTimer.current) {
+          clearTimeout(debounceTimer.current)
+          debounceTimer.current = null
+        }
+        pendingWrite.current = toPersistedSnapshot(
+          stateRef.current,
+          pairingRef.current !== null,
+        )
+        void flush()
+        return
+      }
+
+      if (nextAppState === 'active') {
+        if (!ready || !pairingRef.current) return
+        const activePairing = pairingRef.current
+        const seq = ++checkSeq
+        const client = createHubClient({
+          ...activePairing,
+          timeoutMs: FOREGROUND_CHECK_TIMEOUT_MS,
+        })
+        void client
+          .pairing()
+          .then(() => {
+            if (!alive || seq !== checkSeq || pairingRef.current !== activePairing) return
+            updateConnection('online')
+            setHubError((prev) =>
+              prev === 'No se pudo conectar' ||
+              prev === 'Necesitás conexión con la PC' ||
+              prev === 'Sin conexión: el cambio no se envió a la PC' ||
+              prev === 'Token inválido'
+                ? null
+                : prev,
+            )
+          })
+          .catch((err: unknown) => {
+            if (!alive || seq !== checkSeq || pairingRef.current !== activePairing) return
+            if (err instanceof HubError && (err.status === 401 || err.status === 403)) {
+              updateConnection('error')
+              setHubError('Token inválido')
+            } else {
+              updateConnection('offline')
+            }
+          })
+      }
+    })
+
+    return () => {
+      alive = false
+      sub.remove()
+    }
+  }, [ready, flush, updateConnection])
 
   const syncWithPairing = useCallback(
     async (activePairing: Pairing) => {
