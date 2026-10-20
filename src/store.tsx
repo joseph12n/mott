@@ -17,7 +17,7 @@ import {
 } from './data'
 import { createHubClient, HubError } from './hub/client.ts'
 import { fromCents, mapBranding, mapExpenses, mapSales, mapSuppliers, toCents } from './hub/mappers.ts'
-import type { HubSnapshot, HubSupplier, HubToday } from './hub/model.ts'
+import type { HubSnapshot, HubToday } from './hub/model.ts'
 import { normalizeBaseUrl, parsePairingCode } from './hub/pairing.ts'
 import type { Pairing } from './hub/pairing.ts'
 import { enqueue, enqueueCloseTab, enqueueSaveTab, loadQueue, saveQueue } from './hub/queue.ts'
@@ -28,26 +28,15 @@ export type ConnectionState = 'unpaired' | 'connecting' | 'online' | 'offline' |
 
 export type Store = {
   products: Product[]
-  setProducts: (updater: (current: Product[]) => Product[]) => void
   productAvailable: Record<string, boolean>
   productCategories: Record<string, string>
   tables: Table[]
-  setTables: (updater: (current: Table[]) => Table[]) => void
   orders: Order[]
-  setOrders: (updater: (current: Order[]) => Order[]) => void
   expenses: Expense[]
-  setExpenses: (updater: (current: Expense[]) => Expense[]) => void
   suppliers: Supplier[]
-  setSuppliers: (updater: (current: Supplier[]) => Supplier[]) => void
-  hubSuppliers: HubSupplier[]
   name: string
-  setName: (value: string) => void
   accent: string
-  setAccent: (value: string) => void
   accent2: string
-  setAccent2: (value: string) => void
-  logo: string
-  setLogo: (value: string) => void
   logoUrl: string | null
   dark: boolean
   setDark: (value: boolean) => void
@@ -86,11 +75,9 @@ type Persisted = {
   orders: Order[]
   expenses: Expense[]
   suppliers: Supplier[]
-  hubSuppliers: HubSupplier[]
   name: string
   accent: string
   accent2: string
-  logo: string
   logoUrl: string | null
   dark: boolean
   lastSyncAt: string | null
@@ -125,11 +112,9 @@ const DEFAULTS = (): Persisted => ({
   orders: seedOrders,
   expenses: seedExpenses,
   suppliers: seedSuppliers,
-  hubSuppliers: seedSuppliers,
   name: 'mitt',
   accent: '#0e7a5a',
   accent2: '#f2a33a',
-  logo: '',
   logoUrl: null,
   dark: false,
   lastSyncAt: null,
@@ -208,13 +193,9 @@ function hydrate(raw: unknown): Persisted {
     orders: isArray(parsed.orders) ? (parsed.orders as Order[]) : base.orders,
     expenses: isArray(parsed.expenses) ? (parsed.expenses as Expense[]) : base.expenses,
     suppliers,
-    hubSuppliers: isArray(parsed.hubSuppliers)
-      ? normalizeSuppliers(parsed.hubSuppliers, suppliers)
-      : suppliers,
     name: typeof parsed.name === 'string' ? parsed.name : base.name,
     accent: typeof parsed.accent === 'string' ? parsed.accent : base.accent,
     accent2: typeof parsed.accent2 === 'string' ? parsed.accent2 : base.accent2,
-    logo: typeof parsed.logo === 'string' ? parsed.logo : base.logo,
     logoUrl: typeof parsed.logoUrl === 'string' ? parsed.logoUrl : null,
     dark: typeof parsed.dark === 'boolean' ? parsed.dark : base.dark,
     lastSyncAt: typeof parsed.lastSyncAt === 'string' ? parsed.lastSyncAt : null,
@@ -343,7 +324,6 @@ function applySnapshotToState(current: Persisted, snapshot: HubSnapshot): Persis
     orders,
     expenses,
     suppliers,
-    hubSuppliers: snapshot.suppliers,
     name: snapshot.branding.name || current.name,
     accent: snapshot.branding.accent || current.accent,
     accent2: snapshot.branding.accent2 || current.accent2,
@@ -1250,15 +1230,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           note: cleanNote,
         })
         const mapped = mapSuppliers([dto])[0]
-        commitState((current) => {
-          const nextSuppliers = [...current.suppliers, mapped]
-          return {
-            ...current,
-            suppliers: nextSuppliers,
-            hubSuppliers: nextSuppliers,
-            lastSyncAt: new Date().toISOString(),
-          }
-        })
+        commitState((current) => ({
+          ...current,
+          suppliers: [...current.suppliers, mapped],
+          lastSyncAt: new Date().toISOString(),
+        }))
         setHubError(null)
         return true
       } catch (err) {
@@ -1314,15 +1290,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       try {
         const dto = await client.patchSupplier(id, body)
         const mapped = mapSuppliers([dto])[0]
-        commitState((current) => {
-          const nextSuppliers = current.suppliers.map((s) => (s.id === id ? mapped : s))
-          return {
-            ...current,
-            suppliers: nextSuppliers,
-            hubSuppliers: nextSuppliers,
-            lastSyncAt: new Date().toISOString(),
-          }
-        })
+        commitState((current) => ({
+          ...current,
+          suppliers: current.suppliers.map((s) => (s.id === id ? mapped : s)),
+          lastSyncAt: new Date().toISOString(),
+        }))
         setHubError(null)
         return true
       } catch (err) {
@@ -1360,15 +1332,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const client = createHubClient(activePairing)
       try {
         await client.deleteSupplier(id)
-        commitState((current) => {
-          const nextSuppliers = current.suppliers.filter((s) => s.id !== id)
-          return {
-            ...current,
-            suppliers: nextSuppliers,
-            hubSuppliers: nextSuppliers,
-            lastSyncAt: new Date().toISOString(),
-          }
-        })
+        commitState((current) => ({
+          ...current,
+          suppliers: current.suppliers.filter((s) => s.id !== id),
+          lastSyncAt: new Date().toISOString(),
+        }))
         setHubError(null)
         return true
       } catch (err) {
@@ -1451,15 +1419,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       hubError,
       pending: pendingCount,
       ready,
-      setProducts: (updater) => update({ products: updater(state.products) }),
-      setTables: (updater) => update({ tables: updater(state.tables) }),
-      setOrders: (updater) => update({ orders: updater(state.orders) }),
-      setExpenses: (updater) => update({ expenses: updater(state.expenses) }),
-      setSuppliers: (updater) => update({ suppliers: updater(state.suppliers) }),
-      setName: (value) => update({ name: value }),
-      setAccent: (value) => update({ accent: value }),
-      setAccent2: (value) => update({ accent2: value }),
-      setLogo: (value) => update({ logo: value }),
       setDark: (value) => update({ dark: value }),
       connect,
       disconnect,

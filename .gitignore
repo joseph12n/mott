@@ -17,7 +17,6 @@ yarn-error.*
 *.aab
 *.keystore
 *.jks
-local.properties
 
 # The design master keeps its own project
 mottandmittdesing/node_modules/

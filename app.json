@@ -8,6 +8,16 @@
     "newArchEnabled": true,
     "android": {
       "package": "dev.mott.app"
-    }
+    },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
+    ]
   }
 }

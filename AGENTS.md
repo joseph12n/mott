@@ -53,43 +53,49 @@ companion of `mitt`, the **PC hub** (Go + SQLite) that lives at
 - CI: `.github/workflows/android.yml` runs install → typecheck → `expo prebuild`
   → `assembleRelease` → artifact. Tags `v*` publish the APK.
 
-## 4. Current architecture
+## 4. Architecture
 
 ```
 App.tsx                  shell: responsive rail/bottom nav, 7 sections
+app.json                 Expo config + expo-build-properties (android cleartext)
 src/theme.ts             design tokens, palette from brand + accent
-src/data.ts              domain types, seeds, money()
-src/store.tsx            single JSON store persisted to AsyncStorage
-src/ui.tsx               Card/Btn/Pill/Field/Num/Bar vocabulary
+src/presets.ts           22 design presets from the web master
+src/usePalette.ts        palette hook derived from store brand + dark mode
+src/data.ts              domain types, seeds, money(), isToday(), formatDay()
+src/store.tsx            single JSON store + hub connection/sync + write-through actions
+src/ui.tsx               Card/Btn/LinkBtn/Pill/StatusPill/Header/Field/Num/Bar vocabulary
 src/views/*.tsx          Panel, Mesas, Catálogo, Proveedores, Gastos,
                          Conexión, Personalizar
-```
-
-The store is a single object persisted under `mott:app-state:v1`. Every field is
-validated on load so a truncated payload falls back to seeds.
-
-## 5. Target architecture for hub connectivity
-
-New modules (do not put wire logic inside views):
-
-```
 src/hub/types.ts         wire DTOs (snake_case, cents, RFC3339 strings)
+src/hub/model.ts         app-facing view models for hub snapshots
 src/hub/pairing.ts       parse mitt://pair?url=...&token=... and url|token
 src/hub/client.ts        typed fetch client, bearer token, timeout, HubError
 src/hub/mappers.ts       hub <-> app domain mapping (pure functions)
-src/hub/queue.ts         persisted outbox: enqueue/list/remove/bump
+src/hub/queue.ts         persisted outbox: enqueue/coalesce/list/remove/bump
 src/hub/sync.ts          pullSnapshot() + drainQueue() (idempotent)
+scripts/hub-smoke.mjs    Node smoke test against a disposable mitt hub on :8099
 ```
 
-Store additions:
+Persistence keys in `AsyncStorage`:
+- `mott:app-state:v1` (with legacy fallback `mitt:app-state:v1`): domain state,
+  `productAvailable`, `productCategories`, `logoUrl`, `lastSyncAt`, `hubToday`.
+  Validated field by field on load so a truncated payload falls back to seeds.
+- `mott:pairing:v1`: `{ baseUrl, token }`.
+- `mott:pending:v1`: FIFO offline outbox queue (`PendingOp[]`).
+
+## 5. Hub connectivity rules
+
+Store connection state and actions:
 
 - `pairing: { baseUrl, token } | null`
 - `connection: 'unpaired' | 'connecting' | 'online' | 'offline' | 'error'`
 - `lastSyncAt: string | null`, `hubError: string | null`, `pending: number`
 - `hubToday: { date, count, totalCents } | null`
 - `logoUrl: string | null`
-- Actions: `connect(input)`, `disconnect()`, `syncNow()`, and write-through
-  actions used by views.
+- Actions: `connect(input)`, `disconnect()`, `syncNow()`, `createTable`,
+  `deleteTable`, `openTable`, `addItem`, `closeTable`, `createProduct`,
+  `setProductAvailable`, `addExpense`, `createSupplier`, `updateSupplier`,
+  `deleteSupplier`, `saveBranding`.
 
 **Hub-first rule.** When paired and online, a pull replaces catalogue, tables,
 orders, expenses, suppliers and branding with hub data. Local seeds remain only
@@ -188,17 +194,45 @@ Done:
 - **T4 — Remaining sections + honest cleanup.** `src/data.ts`, `src/store.tsx`,
   `src/views/Catalogo.tsx`, `src/views/Gastos.tsx`, `src/views/Proveedores.tsx`,
   `src/views/Panel.tsx`, `src/views/Personalizar.tsx`, `src/views/Mesas.tsx`.
+- **T5 — Android cleartext + docs + final verification.** `app.json`,
+  `package.json`, `package-lock.json`, `README.md`, `.gitignore`, `App.tsx`,
+  `src/store.tsx`, `src/views/Panel.tsx`, `AGENTS.md`.
 
 In progress (this session):
-- Hub connectivity re-implementation, code cleanup, living context file.
+- None (T1–T5 complete).
 
-Planned work units:
-- **T5 — Android cleartext + docs.** `expo-build-properties`
-  (`android.usesCleartextTraffic: true`), README, final typecheck/smoke.
+Next steps:
+- Camera QR scanner for `mitt://pair?...` codes (`expo-camera`).
+- On-device field test in a real bar against a LAN `mitt` hub.
+- Open PR for `feat/react-native-app` and verify the GitHub Actions release APK build.
 
 ## 9. Session log
 
 Newest first. Each entry: date, work unit, what changed, verification, next step.
+
+- **2026-10-20 — T5.** Installed `expo-build-properties` (`~58.0.11`) and configured
+  `android.usesCleartextTraffic: true` in `app.json` so the release APK can reach the
+  LAN `mitt` hub over plain HTTP. Rewrote `README.md` to document optional `mitt` PC
+  hub pairing, the flat `Proveedores` model, `Conexión`, `Mesas`, the `Offline outbox`
+  queue and retry rules, `npm run test:hub`, and current limitations. Removed unused
+  store fields/setters (`hubSuppliers`, `logo`, `setProducts`, `setTables`, `setOrders`,
+  `setExpenses`, `setSuppliers`, `setName`, `setAccent`, `setAccent2`, `setLogo`) in
+  `src/store.tsx`, unused default `React` imports in `App.tsx` and `src/views/Panel.tsx`,
+  and the leftover Gradle `local.properties` entry in `.gitignore`.
+  Verification: `npx expo config --type public --json` resolved the `expo-build-properties`
+  plugin with `{"android":{"usesCleartextTraffic":true}}`; `npm install` exited 0
+  (`up to date, audited 471 packages`); `npx tsc --noEmit` (and `--noUnusedLocals
+  --noUnusedParameters`) exited 0 with no output; `npm run test:hub` passed all 18
+  checks (`PASS 1. health()` .. `PASS 18. outbox ...`);
+  `grep -rn "SupProduct\|Purchase\|method\|purchases" src App.tsx` returned only
+  HTTP request `method` references in `src/views/Conexion.tsx` and `src/hub/client.ts`.
+  A Metro production export (`npx expo export --platform android`) exited 0
+  (650 modules, 1.7 MB Hermes bundle), and `npx expo prebuild --platform android
+  --no-install` exited 0 with `android:usesCleartextTraffic="true"` in the generated
+  manifest (the generated `android/` was removed). Local Android APK build was not
+  run (no local Android SDK installed and `android/` is regenerated in CI via
+  `.github/workflows/android.yml`).
+  Next: QR scanner, on-device field test in a bar, and PR.
 
 - **2026-10-20 — T4.** Completed hub wiring for `Catálogo`, `Gastos`,
   `Proveedores`, `Panel`, and `Personalizar`, and cleaned up the domain in
