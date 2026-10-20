@@ -16,12 +16,13 @@ import {
   uid,
 } from './data'
 import { createHubClient, HubError } from './hub/client.ts'
-import { mapSales } from './hub/mappers.ts'
+import { fromCents, mapBranding, mapExpenses, mapSales, mapSuppliers, toCents } from './hub/mappers.ts'
 import type { HubSnapshot, HubSupplier, HubToday } from './hub/model.ts'
 import { normalizeBaseUrl, parsePairingCode } from './hub/pairing.ts'
 import type { Pairing } from './hub/pairing.ts'
-import { enqueueCloseTab, enqueueSaveTab, loadQueue, saveQueue } from './hub/queue.ts'
+import { enqueue, enqueueCloseTab, enqueueSaveTab, loadQueue, saveQueue } from './hub/queue.ts'
 import { drainQueue, pullSnapshot } from './hub/sync.ts'
+import type { BrandingPatchRequest, SupplierPatchRequest } from './hub/types.ts'
 
 export type ConnectionState = 'unpaired' | 'connecting' | 'online' | 'offline' | 'error'
 
@@ -29,6 +30,7 @@ export type Store = {
   products: Product[]
   setProducts: (updater: (current: Product[]) => Product[]) => void
   productAvailable: Record<string, boolean>
+  productCategories: Record<string, string>
   tables: Table[]
   setTables: (updater: (current: Table[]) => Table[]) => void
   orders: Order[]
@@ -63,12 +65,23 @@ export type Store = {
   openTable: (tableId: string) => Promise<boolean>
   addItem: (tableId: string, productId: string, qty: number) => Promise<boolean>
   closeTable: (tableId: string) => Promise<boolean>
+  createProduct: (name: string, price: number, category: string) => Promise<boolean>
+  setProductAvailable: (id: string, available: boolean) => Promise<boolean>
+  addExpense: (concept: string, amount: number) => Promise<boolean>
+  createSupplier: (name: string, phone: string, note: string) => Promise<boolean>
+  updateSupplier: (
+    id: string,
+    patch: { name?: string; phone?: string; note?: string },
+  ) => Promise<boolean>
+  deleteSupplier: (id: string) => Promise<boolean>
+  saveBranding: (patch: { name?: string; accent?: string; accent2?: string }) => Promise<boolean>
   ready: boolean
 }
 
 type Persisted = {
   products: Product[]
   productAvailable: Record<string, boolean>
+  productCategories: Record<string, string>
   tables: Table[]
   orders: Order[]
   expenses: Expense[]
@@ -96,14 +109,23 @@ const DEFAULT_AVAILABLE = (): Record<string, boolean> => {
   return map
 }
 
+const DEFAULT_CATEGORIES = (): Record<string, string> => {
+  const map: Record<string, string> = {}
+  for (const p of seedProducts) {
+    map[p.id] = p.category
+  }
+  return map
+}
+
 const DEFAULTS = (): Persisted => ({
   products: seedProducts,
   productAvailable: DEFAULT_AVAILABLE(),
+  productCategories: DEFAULT_CATEGORIES(),
   tables: seedTables,
   orders: seedOrders,
   expenses: seedExpenses,
   suppliers: seedSuppliers,
-  hubSuppliers: [],
+  hubSuppliers: seedSuppliers,
   name: 'mitt',
   accent: '#0e7a5a',
   accent2: '#f2a33a',
@@ -126,6 +148,14 @@ function isBooleanRecord(value: unknown): value is Record<string, boolean> {
   return true
 }
 
+function isStringRecord(value: unknown): value is Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  for (const v of Object.values(value as Record<string, unknown>)) {
+    if (typeof v !== 'string') return false
+  }
+  return true
+}
+
 function isHubToday(value: unknown): value is HubToday {
   if (!value || typeof value !== 'object') return false
   const candidate = value as Partial<HubToday>
@@ -138,24 +168,49 @@ function isHubToday(value: unknown): value is HubToday {
   )
 }
 
+function normalizeSuppliers(raw: unknown, fallback: Supplier[]): Supplier[] {
+  if (!Array.isArray(raw)) return fallback
+  const out: Supplier[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const rec = item as Record<string, unknown>
+    if (typeof rec.id !== 'string' || typeof rec.name !== 'string') continue
+    const phone = typeof rec.phone === 'string' ? rec.phone : ''
+    const note =
+      typeof rec.note === 'string'
+        ? rec.note
+        : typeof rec.category === 'string'
+          ? rec.category
+          : ''
+    out.push({ id: rec.id, name: rec.name, phone, note })
+  }
+  return out
+}
+
 function hydrate(raw: unknown): Persisted {
   const base = DEFAULTS()
   if (!raw || typeof raw !== 'object') return base
   const parsed = raw as Partial<Persisted>
+  const products = isArray(parsed.products) ? (parsed.products as Product[]) : base.products
+  const productCategories = isStringRecord(parsed.productCategories)
+    ? { ...buildCategoryMap(products), ...parsed.productCategories }
+    : buildCategoryMap(products)
+  const suppliers = normalizeSuppliers(parsed.suppliers, base.suppliers)
   return {
-    products: isArray(parsed.products) ? (parsed.products as Product[]) : base.products,
+    products,
     productAvailable: isBooleanRecord(parsed.productAvailable)
       ? parsed.productAvailable
       : base.productAvailable,
+    productCategories,
     tables: isArray(parsed.tables)
       ? (parsed.tables as Table[]).map((t) => ({ ...t, hubTabId: t.hubTabId ?? null }))
       : base.tables,
     orders: isArray(parsed.orders) ? (parsed.orders as Order[]) : base.orders,
     expenses: isArray(parsed.expenses) ? (parsed.expenses as Expense[]) : base.expenses,
-    suppliers: isArray(parsed.suppliers) ? (parsed.suppliers as Supplier[]) : base.suppliers,
+    suppliers,
     hubSuppliers: isArray(parsed.hubSuppliers)
-      ? (parsed.hubSuppliers as HubSupplier[])
-      : base.hubSuppliers,
+      ? normalizeSuppliers(parsed.hubSuppliers, suppliers)
+      : suppliers,
     name: typeof parsed.name === 'string' ? parsed.name : base.name,
     accent: typeof parsed.accent === 'string' ? parsed.accent : base.accent,
     accent2: typeof parsed.accent2 === 'string' ? parsed.accent2 : base.accent2,
@@ -182,8 +237,11 @@ function hydratePairing(raw: string | null): Pairing | null {
   }
 }
 
-function buildCategoryMap(products: Product[]): Record<string, string> {
-  const categories: Record<string, string> = {}
+function buildCategoryMap(
+  products: Product[],
+  existing?: Record<string, string>,
+): Record<string, string> {
+  const categories: Record<string, string> = { ...(existing ?? {}) }
   for (const p of products) {
     if (p.id && p.category) {
       categories[p.id] = p.category
@@ -219,14 +277,29 @@ function buildLocalOrder(table: Table, products: Product[]): Order {
 }
 
 function applySnapshotToState(current: Persisted, snapshot: HubSnapshot): Persisted {
+  const byNameCategory = new Map<string, string>()
+  for (const p of current.products) {
+    if (p.name && p.category) {
+      byNameCategory.set(p.name.trim().toLowerCase(), p.category)
+    }
+  }
+
   const productAvailable: Record<string, boolean> = {}
+  const productCategories: Record<string, string> = { ...current.productCategories }
+
   const products: Product[] = snapshot.products.map((p) => {
     productAvailable[p.id] = p.available
+    const resolvedCategory =
+      current.productCategories[p.id] ||
+      (p.category && p.category !== 'Carta' ? p.category : '') ||
+      byNameCategory.get(p.name.trim().toLowerCase()) ||
+      'Carta'
+    productCategories[p.id] = resolvedCategory
     return {
       id: p.id,
       name: p.name,
       price: p.price,
-      category: p.category || 'Carta',
+      category: resolvedCategory,
     }
   })
 
@@ -254,13 +327,22 @@ function applySnapshotToState(current: Persisted, snapshot: HubSnapshot): Persis
     date: e.date,
   }))
 
+  const suppliers: Supplier[] = snapshot.suppliers.map((s) => ({
+    id: s.id,
+    name: s.name,
+    phone: s.phone,
+    note: s.note,
+  }))
+
   return {
     ...current,
     products,
     productAvailable,
+    productCategories,
     tables,
     orders,
     expenses,
+    suppliers,
     hubSuppliers: snapshot.suppliers,
     name: snapshot.branding.name || current.name,
     accent: snapshot.branding.accent || current.accent,
@@ -353,7 +435,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setHubError(null)
       const client = createHubClient(activePairing)
       try {
-        const categories = buildCategoryMap(stateRef.current.products)
+        const categories = buildCategoryMap(
+          stateRef.current.products,
+          stateRef.current.productCategories,
+        )
         let snapshot = await pullSnapshot(client, categories)
 
         const queued = await loadQueue()
@@ -365,7 +450,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           setPendingCount(remaining.length)
 
           if (report.synced > 0) {
-            const refreshedCategories = buildCategoryMap(stateRef.current.products)
+            const refreshedCategories = buildCategoryMap(
+              stateRef.current.products,
+              stateRef.current.productCategories,
+            )
             snapshot = await pullSnapshot(client, refreshedCategories)
           }
 
@@ -528,27 +616,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     await syncWithPairing(activePairing)
   }, [syncWithPairing])
 
-  const queueSaveTabOffline = useCallback(
-    async (tableId: string, lines: Line[]) => {
-      const queued = await loadQueue()
-      const nextQueue = enqueueSaveTab(queued, { tableId, lines })
-      await saveQueue(nextQueue)
-      setPendingCount(nextQueue.length)
-      setHubError(null)
-    },
-    [],
-  )
+  const queueSaveTabOffline = useCallback(async (tableId: string, lines: Line[]) => {
+    const queued = await loadQueue()
+    const nextQueue = enqueueSaveTab(queued, { tableId, lines })
+    await saveQueue(nextQueue)
+    setPendingCount(nextQueue.length)
+    setHubError(null)
+  }, [])
 
-  const queueCloseTabOffline = useCallback(
-    async (tableId: string, lines: Line[]) => {
-      const queued = await loadQueue()
-      const nextQueue = enqueueCloseTab(queued, { tableId, lines })
-      await saveQueue(nextQueue)
-      setPendingCount(nextQueue.length)
-      setHubError(null)
-    },
-    [],
-  )
+  const queueCloseTabOffline = useCallback(async (tableId: string, lines: Line[]) => {
+    const queued = await loadQueue()
+    const nextQueue = enqueueCloseTab(queued, { tableId, lines })
+    await saveQueue(nextQueue)
+    setPendingCount(nextQueue.length)
+    setHubError(null)
+  }, [])
 
   const createTable = useCallback(
     async (label: string): Promise<boolean> => {
@@ -910,6 +992,457 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [commitState, queueCloseTabOffline, updateConnection],
   )
 
+  const createProduct = useCallback(
+    async (name: string, price: number, category: string): Promise<boolean> => {
+      const cleanName = name.trim()
+      const cleanCategory = category.trim() || 'Carta'
+      const priceCents = toCents(price)
+      if (!cleanName || priceCents <= 0) return false
+
+      const activePairing = pairingRef.current
+      const mode = connectionRef.current
+
+      const insertLocally = (id: string, resolvedPrice: number, available: boolean) => {
+        const prod: Product = { id, name: cleanName, price: resolvedPrice, category: cleanCategory }
+        commitState((current) => ({
+          ...current,
+          products: [...current.products, prod],
+          productAvailable: { ...current.productAvailable, [id]: available },
+          productCategories: { ...current.productCategories, [id]: cleanCategory },
+        }))
+      }
+
+      if (mode === 'unpaired' || !activePairing) {
+        insertLocally(uid(), fromCents(priceCents), true)
+        setHubError(null)
+        return true
+      }
+
+      const enqueueOffline = async () => {
+        insertLocally(uid(), fromCents(priceCents), true)
+        const queued = await loadQueue()
+        const nextQueue = enqueue(queued, {
+          type: 'UPSERT_PRODUCT',
+          payload: {
+            name: cleanName,
+            priceCents,
+            available: true,
+            category: cleanCategory,
+          },
+        })
+        await saveQueue(nextQueue)
+        setPendingCount(nextQueue.length)
+        setHubError(null)
+      }
+
+      if (mode !== 'online') {
+        await enqueueOffline()
+        return true
+      }
+
+      const client = createHubClient(activePairing)
+      try {
+        const dto = await client.createProduct({
+          name: cleanName,
+          price_cents: priceCents,
+          available: true,
+        })
+        commitState((current) => ({
+          ...current,
+          products: [
+            ...current.products,
+            {
+              id: dto.id,
+              name: dto.name,
+              price: fromCents(dto.price_cents),
+              category: cleanCategory,
+            },
+          ],
+          productAvailable: { ...current.productAvailable, [dto.id]: dto.available },
+          productCategories: { ...current.productCategories, [dto.id]: cleanCategory },
+          lastSyncAt: new Date().toISOString(),
+        }))
+        setHubError(null)
+        return true
+      } catch (err) {
+        if (err instanceof HubError && err.status >= 400 && err.status < 500) {
+          setHubError(err.message || 'No se pudo crear el producto')
+          return false
+        }
+        updateConnection('offline')
+        await enqueueOffline()
+        return true
+      }
+    },
+    [commitState, updateConnection],
+  )
+
+  const setProductAvailable = useCallback(
+    async (id: string, available: boolean): Promise<boolean> => {
+      const activePairing = pairingRef.current
+      const mode = connectionRef.current
+
+      if (mode === 'unpaired' || !activePairing) {
+        commitState((current) => ({
+          ...current,
+          productAvailable: { ...current.productAvailable, [id]: available },
+        }))
+        setHubError(null)
+        return true
+      }
+
+      if (mode !== 'online') {
+        commitState((current) => ({
+          ...current,
+          productAvailable: { ...current.productAvailable, [id]: available },
+        }))
+        setHubError('Sin conexión: el cambio no se envió a la PC')
+        return false
+      }
+
+      const client = createHubClient(activePairing)
+      try {
+        const dto = await client.patchProduct(id, { available })
+        commitState((current) => ({
+          ...current,
+          productAvailable: { ...current.productAvailable, [id]: dto.available },
+          lastSyncAt: new Date().toISOString(),
+        }))
+        setHubError(null)
+        return true
+      } catch (err) {
+        if (err instanceof HubError && err.status >= 400 && err.status < 500) {
+          setHubError(err.message || 'No se pudo actualizar el producto')
+          return false
+        }
+        updateConnection('offline')
+        commitState((current) => ({
+          ...current,
+          productAvailable: { ...current.productAvailable, [id]: available },
+        }))
+        return false
+      }
+    },
+    [commitState, updateConnection],
+  )
+
+  const addExpense = useCallback(
+    async (concept: string, amount: number): Promise<boolean> => {
+      const cleanConcept = concept.trim()
+      const costCents = toCents(amount)
+      if (!cleanConcept || costCents <= 0) return false
+
+      const activePairing = pairingRef.current
+      const mode = connectionRef.current
+
+      const insertLocally = (exp: Expense) => {
+        commitState((current) => ({
+          ...current,
+          expenses: [exp, ...current.expenses],
+        }))
+      }
+
+      if (mode === 'unpaired' || !activePairing) {
+        insertLocally({
+          id: uid(),
+          concept: cleanConcept,
+          amount: fromCents(costCents),
+          date: new Date().toISOString(),
+        })
+        setHubError(null)
+        return true
+      }
+
+      const enqueueOffline = async () => {
+        insertLocally({
+          id: uid(),
+          concept: cleanConcept,
+          amount: fromCents(costCents),
+          date: new Date().toISOString(),
+        })
+        const queued = await loadQueue()
+        const nextQueue = enqueue(queued, {
+          type: 'ADD_EXPENSE',
+          payload: {
+            description: cleanConcept,
+            qty: 1,
+            costCents,
+          },
+        })
+        await saveQueue(nextQueue)
+        setPendingCount(nextQueue.length)
+        setHubError(null)
+      }
+
+      if (mode !== 'online') {
+        await enqueueOffline()
+        return true
+      }
+
+      const client = createHubClient(activePairing)
+      try {
+        const dto = await client.createExpense({
+          description: cleanConcept,
+          qty: 1,
+          cost_cents: costCents,
+        })
+        const mapped = mapExpenses([dto])[0]
+        insertLocally({
+          id: mapped.id,
+          concept: mapped.concept,
+          amount: mapped.amount,
+          date: mapped.date,
+        })
+        commitState((current) => ({
+          ...current,
+          lastSyncAt: new Date().toISOString(),
+        }))
+        setHubError(null)
+        return true
+      } catch (err) {
+        if (err instanceof HubError && err.status >= 400 && err.status < 500) {
+          setHubError(err.message || 'No se pudo registrar el gasto')
+          return false
+        }
+        updateConnection('offline')
+        await enqueueOffline()
+        return true
+      }
+    },
+    [commitState, updateConnection],
+  )
+
+  const createSupplier = useCallback(
+    async (name: string, phone: string, note: string): Promise<boolean> => {
+      const cleanName = name.trim()
+      const cleanPhone = phone.trim()
+      const cleanNote = note.trim()
+      if (!cleanName) return false
+
+      const activePairing = pairingRef.current
+      const mode = connectionRef.current
+
+      if (mode === 'unpaired' || !activePairing) {
+        const sup: Supplier = {
+          id: uid(),
+          name: cleanName,
+          phone: cleanPhone,
+          note: cleanNote,
+        }
+        commitState((current) => ({
+          ...current,
+          suppliers: [...current.suppliers, sup],
+        }))
+        setHubError(null)
+        return true
+      }
+
+      if (mode !== 'online') {
+        setHubError('Necesitás conexión con la PC')
+        return false
+      }
+
+      const client = createHubClient(activePairing)
+      try {
+        const dto = await client.createSupplier({
+          name: cleanName,
+          phone: cleanPhone,
+          note: cleanNote,
+        })
+        const mapped = mapSuppliers([dto])[0]
+        commitState((current) => {
+          const nextSuppliers = [...current.suppliers, mapped]
+          return {
+            ...current,
+            suppliers: nextSuppliers,
+            hubSuppliers: nextSuppliers,
+            lastSyncAt: new Date().toISOString(),
+          }
+        })
+        setHubError(null)
+        return true
+      } catch (err) {
+        if (err instanceof HubError && err.status >= 400 && err.status < 500) {
+          setHubError(err.message || 'No se pudo crear el proveedor')
+          return false
+        }
+        updateConnection('offline')
+        setHubError('Necesitás conexión con la PC')
+        return false
+      }
+    },
+    [commitState, updateConnection],
+  )
+
+  const updateSupplier = useCallback(
+    async (
+      id: string,
+      patch: { name?: string; phone?: string; note?: string },
+    ): Promise<boolean> => {
+      const activePairing = pairingRef.current
+      const mode = connectionRef.current
+
+      if (mode === 'unpaired' || !activePairing) {
+        commitState((current) => ({
+          ...current,
+          suppliers: current.suppliers.map((s) =>
+            s.id === id
+              ? {
+                  ...s,
+                  name: patch.name !== undefined ? patch.name.trim() || s.name : s.name,
+                  phone: patch.phone !== undefined ? patch.phone.trim() : s.phone,
+                  note: patch.note !== undefined ? patch.note.trim() : s.note,
+                }
+              : s,
+          ),
+        }))
+        setHubError(null)
+        return true
+      }
+
+      if (mode !== 'online') {
+        setHubError('Necesitás conexión con la PC')
+        return false
+      }
+
+      const client = createHubClient(activePairing)
+      const body: SupplierPatchRequest = {}
+      if (patch.name !== undefined) body.name = patch.name.trim()
+      if (patch.phone !== undefined) body.phone = patch.phone.trim()
+      if (patch.note !== undefined) body.note = patch.note.trim()
+
+      try {
+        const dto = await client.patchSupplier(id, body)
+        const mapped = mapSuppliers([dto])[0]
+        commitState((current) => {
+          const nextSuppliers = current.suppliers.map((s) => (s.id === id ? mapped : s))
+          return {
+            ...current,
+            suppliers: nextSuppliers,
+            hubSuppliers: nextSuppliers,
+            lastSyncAt: new Date().toISOString(),
+          }
+        })
+        setHubError(null)
+        return true
+      } catch (err) {
+        if (err instanceof HubError && err.status >= 400 && err.status < 500) {
+          setHubError(err.message || 'No se pudo actualizar el proveedor')
+          return false
+        }
+        updateConnection('offline')
+        setHubError('Necesitás conexión con la PC')
+        return false
+      }
+    },
+    [commitState, updateConnection],
+  )
+
+  const deleteSupplier = useCallback(
+    async (id: string): Promise<boolean> => {
+      const activePairing = pairingRef.current
+      const mode = connectionRef.current
+
+      if (mode === 'unpaired' || !activePairing) {
+        commitState((current) => ({
+          ...current,
+          suppliers: current.suppliers.filter((s) => s.id !== id),
+        }))
+        setHubError(null)
+        return true
+      }
+
+      if (mode !== 'online') {
+        setHubError('Necesitás conexión con la PC')
+        return false
+      }
+
+      const client = createHubClient(activePairing)
+      try {
+        await client.deleteSupplier(id)
+        commitState((current) => {
+          const nextSuppliers = current.suppliers.filter((s) => s.id !== id)
+          return {
+            ...current,
+            suppliers: nextSuppliers,
+            hubSuppliers: nextSuppliers,
+            lastSyncAt: new Date().toISOString(),
+          }
+        })
+        setHubError(null)
+        return true
+      } catch (err) {
+        if (err instanceof HubError && err.status >= 400 && err.status < 500) {
+          setHubError(err.message || 'No se pudo eliminar el proveedor')
+          return false
+        }
+        updateConnection('offline')
+        setHubError('Necesitás conexión con la PC')
+        return false
+      }
+    },
+    [commitState, updateConnection],
+  )
+
+  const saveBranding = useCallback(
+    async (patch: { name?: string; accent?: string; accent2?: string }): Promise<boolean> => {
+      const applyLocally = () => {
+        commitState((current) => ({
+          ...current,
+          name: patch.name !== undefined ? patch.name.trim() || current.name : current.name,
+          accent: patch.accent !== undefined ? patch.accent : current.accent,
+          accent2: patch.accent2 !== undefined ? patch.accent2 : current.accent2,
+        }))
+      }
+
+      const activePairing = pairingRef.current
+      const mode = connectionRef.current
+
+      if (mode === 'unpaired' || !activePairing) {
+        applyLocally()
+        setHubError(null)
+        return true
+      }
+
+      if (mode !== 'online') {
+        applyLocally()
+        setHubError('Necesitás conexión con la PC')
+        return false
+      }
+
+      const client = createHubClient(activePairing)
+      const body: BrandingPatchRequest = {}
+      if (patch.name !== undefined) body.shop_name = patch.name.trim()
+      if (patch.accent !== undefined) body.primary = patch.accent
+      if (patch.accent2 !== undefined) body.accent = patch.accent2
+
+      try {
+        const dto = await client.patchBranding(body)
+        const mapped = mapBranding(activePairing.baseUrl, dto)
+        commitState((current) => ({
+          ...current,
+          name: mapped.name || current.name,
+          accent: mapped.accent || current.accent,
+          accent2: mapped.accent2 || current.accent2,
+          logoUrl: mapped.logoUrl,
+          lastSyncAt: new Date().toISOString(),
+        }))
+        setHubError(null)
+        return true
+      } catch (err) {
+        applyLocally()
+        if (err instanceof HubError && err.status >= 400 && err.status < 500) {
+          setHubError(err.message || 'No se pudo guardar la identidad')
+          return false
+        }
+        updateConnection('offline')
+        setHubError('Necesitás conexión con la PC')
+        return false
+      }
+    },
+    [commitState, updateConnection],
+  )
+
   const store = useMemo<Store>(
     () => ({
       ...state,
@@ -936,6 +1469,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       openTable,
       addItem,
       closeTable,
+      createProduct,
+      setProductAvailable,
+      addExpense,
+      createSupplier,
+      updateSupplier,
+      deleteSupplier,
+      saveBranding,
     }),
     [
       state,
@@ -953,6 +1493,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       openTable,
       addItem,
       closeTable,
+      createProduct,
+      setProductAvailable,
+      addExpense,
+      createSupplier,
+      updateSupplier,
+      deleteSupplier,
+      saveBranding,
     ],
   )
 

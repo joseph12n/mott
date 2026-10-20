@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Text, useWindowDimensions, View } from 'react-native'
+import { useEffect, useState } from 'react'
+import { Image, Text, useWindowDimensions, View } from 'react-native'
 
 import { presets } from '../presets'
 import { useStore } from '../store'
@@ -7,21 +7,38 @@ import { BREAKPOINTS, normalizeHex, radius } from '../theme'
 import { usePalette } from '../usePalette'
 import { Btn, Card, Field, Header, styles as ui } from '../ui'
 
-// Personalizar ported from the web master (views/Personalizar.tsx): identity,
-// theme and palette. Two adaptations, both stated in the UI instead of
-// faking them: the web uses <input type="color"> and a file picker, so here
-// the colors are hex fields with a live swatch and the logo tile shows the
-// shop's initial (the logo is still uploaded from the web).
 export default function Personalizar() {
   const s = useStore()
   const p = usePalette()
   const { width } = useWindowDimensions()
   const [name, setName] = useState(s.name)
+  const [accentDraft, setAccentDraft] = useState(s.accent)
+  const [accent2Draft, setAccent2Draft] = useState(s.accent2)
+  const [logoFailed, setLogoFailed] = useState(false)
+
+  useEffect(() => {
+    setName(s.name)
+  }, [s.name])
+
+  useEffect(() => {
+    setLogoFailed(false)
+  }, [s.logoUrl])
+
+  useEffect(() => {
+    setAccentDraft(s.accent)
+  }, [s.accent])
+
+  useEffect(() => {
+    setAccent2Draft(s.accent2)
+  }, [s.accent2])
 
   const brandColor = normalizeHex(s.accent)
   const accentColor = normalizeHex(s.accent2)
   const columns = width >= 900 ? 3 : width >= BREAKPOINTS.inlineForm ? 2 : 1
   const split = width >= BREAKPOINTS.twoPane
+
+  const colorsChanged =
+    normalizeHex(accentDraft) !== brandColor || normalizeHex(accent2Draft) !== accentColor
 
   const identity = (
     <View style={{ gap: 16 }}>
@@ -39,15 +56,27 @@ export default function Personalizar() {
               borderColor: p.line,
               alignItems: 'center',
               justifyContent: 'center',
+              overflow: 'hidden',
             }}
           >
-            <Text style={[ui.display, { color: p.mute, fontSize: 26 }]}>
-              {(name.trim()[0] ?? 'm').toUpperCase()}
-            </Text>
+            {s.logoUrl && !logoFailed ? (
+              <Image
+                source={{ uri: s.logoUrl }}
+                style={{ width: 80, height: 80, borderRadius: radius.tile }}
+                resizeMode="cover"
+                onError={() => setLogoFailed(true)}
+              />
+            ) : (
+              <Text style={[ui.display, { color: p.mute, fontSize: 26 }]}>
+                {(name.trim()[0] ?? 'm').toUpperCase()}
+              </Text>
+            )}
           </View>
           <View style={{ flex: 1 }}>
             <Text style={[ui.sub, { color: p.mute }]}>
-              El logo del bar se sube desde la versión web; acá se muestra la inicial del nombre.
+              {s.pairing
+                ? 'El logo proviene del servidor de la PC; si no hay imagen cargada se muestra la inicial.'
+                : 'Sin PC vinculada se muestra la inicial del nombre del local.'}
             </Text>
           </View>
         </View>
@@ -58,8 +87,11 @@ export default function Personalizar() {
             p={p}
             label="GUARDAR NOMBRE"
             disabled={!name.trim() || name.trim() === s.name}
-            onPress={() => s.setName(name.trim())}
+            onPress={() => void s.saveBranding({ name: name.trim() })}
           />
+          {s.hubError ? (
+            <Text style={[ui.sub, { color: p.berry, fontWeight: '700' }]}>{s.hubError}</Text>
+          ) : null}
         </View>
       </Card>
 
@@ -85,19 +117,56 @@ export default function Personalizar() {
         <Text style={[ui.label, { color: p.mute, marginTop: 18 }]}>Colores a medida</Text>
         <View style={{ marginTop: 8, gap: 10 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <View style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: p.brand }} />
+            <View
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 10,
+                backgroundColor: normalizeHex(accentDraft),
+              }}
+            />
             <View style={{ flex: 1 }}>
-              <Field p={p} value={s.accent} onChange={s.setAccent} placeholder="#0e7a5a" />
+              <Field
+                p={p}
+                value={accentDraft}
+                onChange={setAccentDraft}
+                placeholder="#0e7a5a"
+                autoCapitalize="none"
+              />
             </View>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <View style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: p.sun }} />
+            <View
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 10,
+                backgroundColor: normalizeHex(accent2Draft),
+              }}
+            />
             <View style={{ flex: 1 }}>
-              <Field p={p} value={s.accent2} onChange={s.setAccent2} placeholder="#f2a33a" />
+              <Field
+                p={p}
+                value={accent2Draft}
+                onChange={setAccent2Draft}
+                placeholder="#f2a33a"
+                autoCapitalize="none"
+              />
             </View>
           </View>
+          <Btn
+            p={p}
+            label="GUARDAR COLORES"
+            disabled={!colorsChanged}
+            onPress={() =>
+              void s.saveBranding({
+                accent: normalizeHex(accentDraft),
+                accent2: normalizeHex(accent2Draft),
+              })
+            }
+          />
           <Text style={[ui.note, { color: p.mute }]}>
-            Valores en hexadecimal; el tema se recalcula al escribir.
+            Valores en hexadecimal; tocá Guardar colores para aplicar la paleta.
           </Text>
         </View>
       </Card>
@@ -146,10 +215,12 @@ export default function Personalizar() {
                   label={active ? 'EN USO' : 'USAR PRESET'}
                   variant={active ? 'ghost' : 'primary'}
                   disabled={active}
-                  onPress={() => {
-                    s.setAccent(preset.brand)
-                    s.setAccent2(preset.accent)
-                  }}
+                  onPress={() =>
+                    void s.saveBranding({
+                      accent: preset.brand,
+                      accent2: preset.accent,
+                    })
+                  }
                 />
               </View>
             </View>

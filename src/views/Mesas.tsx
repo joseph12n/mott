@@ -255,7 +255,8 @@ export default function Mesas() {
         <Text style={[ui.title, { color: p.ink }]}>Agregar productos</Text>
         <View style={{ marginTop: 10, gap: 8 }}>
           {s.products.map((prod) => {
-            const selectedProduct = pick.productId === prod.id
+            const available = s.productAvailable[prod.id] !== false
+            const selectedProduct = available && pick.productId === prod.id
             return (
               <View
                 key={prod.id}
@@ -267,6 +268,7 @@ export default function Mesas() {
                   borderColor: selectedProduct ? p.brand : p.line,
                   borderRadius: 12,
                   padding: 10,
+                  opacity: available ? 1 : 0.5,
                 }}
               >
                 <View style={{ flex: 1 }}>
@@ -275,7 +277,11 @@ export default function Mesas() {
                   </Text>
                   <Num p={p} value={money(prod.price)} size={12} color={p.mute} />
                 </View>
-                {selectedProduct ? (
+                {!available ? (
+                  <Pill p={p} tone="mute">
+                    Dada de baja
+                  </Pill>
+                ) : selectedProduct ? (
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                     <Btn
                       p={p}

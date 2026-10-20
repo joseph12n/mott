@@ -185,19 +185,40 @@ Done:
 - **T3 — Mesas write-through + offline outbox.** `src/store.tsx`,
   `src/views/Mesas.tsx`, `src/hub/queue.ts`, `src/hub/sync.ts`, `src/data.ts`,
   `scripts/hub-smoke.mjs`.
+- **T4 — Remaining sections + honest cleanup.** `src/data.ts`, `src/store.tsx`,
+  `src/views/Catalogo.tsx`, `src/views/Gastos.tsx`, `src/views/Proveedores.tsx`,
+  `src/views/Panel.tsx`, `src/views/Personalizar.tsx`, `src/views/Mesas.tsx`.
 
 In progress (this session):
 - Hub connectivity re-implementation, code cleanup, living context file.
 
 Planned work units:
-- **T4 — Remaining sections + honest cleanup.** Catálogo, Gastos, Proveedores,
-  Personalizar, Panel; remove fake supplier balances and unused seed data.
 - **T5 — Android cleartext + docs.** `expo-build-properties`
   (`android.usesCleartextTraffic: true`), README, final typecheck/smoke.
 
 ## 9. Session log
 
 Newest first. Each entry: date, work unit, what changed, verification, next step.
+
+- **2026-10-20 — T4.** Completed hub wiring for `Catálogo`, `Gastos`,
+  `Proveedores`, `Panel`, and `Personalizar`, and cleaned up the domain in
+  `src/data.ts` (flat `Supplier { id, name, phone, note }`, removed `SupProduct`
+  and `Purchase`, no `Order.method`, added `isToday` and `formatDay`). Added
+  `productCategories: Record<string, string>` and write-through/offline actions
+  (`createProduct`, `setProductAvailable`, `addExpense`, `createSupplier`,
+  `updateSupplier`, `deleteSupplier`, `saveBranding`) in `src/store.tsx`, plus
+  unavailable-product disable state in `src/views/Mesas.tsx`.
+  Verification: `grep -rn "method\|purchases\|SupProduct\|owed(" src App.tsx`
+  returned only HTTP request `method` references in `src/views/Conexion.tsx` and
+  `src/hub/client.ts`; `npx tsc --noEmit` exited 0 with no output; `npm run test:hub`
+  passed all 18 checks (`PASS 1. health()` .. `PASS 18. outbox ...`).
+  Orchestrator follow-up: offline `createProduct`/`addExpense` now return true
+  after queuing so the views clear the form on success instead of reading a
+  stale `hubError`; `setProductAvailable` distinguishes unpaired from
+  paired-offline and shows an inline error instead of silently losing the
+  change; the hub logo falls back to the initial on load error; Panel labels
+  the hub-day order count as UTC.
+  Next: T5 Android cleartext config, README, and final verification.
 
 - **2026-10-20 — T3.** Implemented `Mesas` write-through and offline outbox
   actions (`createTable`, `deleteTable`, `openTable`, `addItem`, `closeTable`) in

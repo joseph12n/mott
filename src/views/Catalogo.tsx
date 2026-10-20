@@ -1,47 +1,59 @@
 import { useMemo, useState } from 'react'
 import { Text, View } from 'react-native'
 
-import { money, uid } from '../data'
+import { money } from '../data'
 import { useStore } from '../store'
 import { usePalette } from '../usePalette'
-import { Btn, Card, Field, Header, LinkBtn, Num, Pill, styles as ui } from '../ui'
+import { Btn, Card, Field, Header, Num, Pill, styles as ui } from '../ui'
 
-// Catálogo ported from the web master (views/Catalogo.tsx): products grouped
-// by category, add form, and a two-tap delete. The web master owns its own
-// catalog, so categories are kept here (unlike the PC-hub client, which
-// dropped them because the hub had no such field).
 export default function Catalogo() {
   const s = useStore()
   const p = usePalette()
   const [name, setName] = useState('')
   const [price, setPrice] = useState('')
-  const [category, setCategory] = useState('Platos')
-  const [armed, setArmed] = useState<string | null>(null)
+  const [category, setCategory] = useState('Carta')
 
-  const categories = useMemo(() => [...new Set(s.products.map((x) => x.category))], [s.products])
+  const categories = useMemo(
+    () => [...new Set(s.products.map((x) => x.category || 'Carta'))],
+    [s.products],
+  )
+  const availableCount = useMemo(
+    () => s.products.filter((x) => s.productAvailable[x.id] !== false).length,
+    [s.products, s.productAvailable],
+  )
+
+  const handleAdd = async () => {
+    const numPrice = Number(price)
+    if (!name.trim() || !numPrice || numPrice <= 0) return
+    const ok = await s.createProduct(name.trim(), numPrice, category.trim() || 'Carta')
+    if (ok) {
+      setName('')
+      setPrice('')
+    }
+  }
 
   return (
     <View style={{ gap: 16 }}>
-      <Header p={p} title="Catálogo" sub={`${s.products.length} productos disponibles para la app móvil`} />
+      <Header
+        p={p}
+        title="Catálogo"
+        sub={`${availableCount} disponibles de ${s.products.length} productos en carta`}
+      />
 
       <Card p={p}>
         <View style={{ gap: 8 }}>
           <Field p={p} value={name} onChange={setName} placeholder="Nombre del producto" />
           <Field p={p} value={price} onChange={setPrice} placeholder="Precio" keyboardType="decimal-pad" />
-          <Field p={p} value={category} onChange={setCategory} placeholder="Rubro (Platos, Bebidas…)" />
+          <Field p={p} value={category} onChange={setCategory} placeholder="Rubro (Carta, Platos, Bebidas…)" />
           <Btn
             p={p}
             label="AGREGAR PRODUCTO"
-            disabled={!name.trim() || !Number(price)}
-            onPress={() => {
-              s.setProducts((list) => [
-                ...list,
-                { id: uid(), name: name.trim(), price: Number(price), category: category.trim() || 'General' },
-              ])
-              setName('')
-              setPrice('')
-            }}
+            disabled={!name.trim() || !Number(price) || Number(price) <= 0}
+            onPress={() => void handleAdd()}
           />
+          {s.hubError ? (
+            <Text style={[ui.sub, { color: p.berry, fontWeight: '700' }]}>{s.hubError}</Text>
+          ) : null}
         </View>
       </Card>
 
@@ -49,52 +61,57 @@ export default function Catalogo() {
         <View key={cat} style={{ gap: 10 }}>
           <Text style={[ui.label, { color: p.mute }]}>{cat}</Text>
           {s.products
-            .filter((x) => x.category === cat)
-            .map((x) => (
-              <Card key={x.id} p={p}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                  <View
-                    style={{
-                      width: 44,
-                      height: 44,
-                      borderRadius: 12,
-                      backgroundColor: p.brandSoft,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <Text style={[ui.display, { color: p.brand, fontSize: 18 }]}>{x.name[0]}</Text>
+            .filter((x) => (x.category || 'Carta') === cat)
+            .map((x) => {
+              const available = s.productAvailable[x.id] !== false
+              return (
+                <Card key={x.id} p={p} style={available ? undefined : { opacity: 0.72 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                    <View
+                      style={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: 12,
+                        backgroundColor: available ? p.brandSoft : p.sunk,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Text style={[ui.display, { color: available ? p.brand : p.mute, fontSize: 18 }]}>
+                        {(x.name[0] ?? 'P').toUpperCase()}
+                      </Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[ui.btnLabel, { color: p.ink }]} numberOfLines={2}>
+                        {x.name}
+                      </Text>
+                      <Num p={p} value={money(x.price)} size={13} color={p.mute} />
+                    </View>
+                    <Pill
+                      p={p}
+                      tone={available ? 'brand' : 'sun'}
+                      dotColor={available ? p.brand : p.berry}
+                    >
+                      {available ? 'Disponible' : 'Dada de baja'}
+                    </Pill>
                   </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[ui.btnLabel, { color: p.ink }]} numberOfLines={2}>
-                      {x.name}
-                    </Text>
-                    <Num p={p} value={money(x.price)} size={13} color={p.mute} />
+                  <View style={{ marginTop: 10 }}>
+                    <Btn
+                      p={p}
+                      label={available ? 'DAR DE BAJA' : 'VOLVER A LA CARTA'}
+                      variant="ghost"
+                      onPress={() => void s.setProductAvailable(x.id, !available)}
+                    />
                   </View>
-                  <Pill p={p}>En la app</Pill>
-                </View>
-                <View style={{ marginTop: 8, flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-                  {armed === x.id ? (
-                    <>
-                      <LinkBtn
-                        p={p}
-                        label="CONFIRMAR"
-                        color={p.berry}
-                        onPress={() => {
-                          s.setProducts((list) => list.filter((y) => y.id !== x.id))
-                          setArmed(null)
-                        }}
-                      />
-                      <LinkBtn p={p} label="CANCELAR" color={p.mute} onPress={() => setArmed(null)} />
-                    </>
-                  ) : (
-                    <LinkBtn p={p} label="Eliminar" color={p.mute} onPress={() => setArmed(x.id)} />
-                  )}
-                </View>
-              </Card>
-            ))}
+                </Card>
+              )
+            })}
         </View>
       ))}
+
+      {s.products.length === 0 ? (
+        <Text style={[ui.sub, { color: p.mute }]}>Todavía no hay productos en el catálogo.</Text>
+      ) : null}
     </View>
   )
 }

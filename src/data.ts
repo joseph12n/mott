@@ -1,7 +1,5 @@
 // Domain types, seeds and formatting ported from the web master
-// (mottandmittdesing/src/data.ts). Money is kept in whole pesos like the web
-// does, and formatted with an explicit es-AR formatter so the app never
-// depends on Intl support in the JS engine.
+// (mottandmittdesing/src/data.ts) and aligned with the mitt PC hub domain.
 
 export type Product = { id: string; name: string; price: number; category: string }
 export type Line = { productId: string; qty: number }
@@ -21,22 +19,11 @@ export type Order = {
   total: number
 }
 export type Expense = { id: string; concept: string; amount: number; date: string }
-export type SupProduct = { id: string; name: string; price: number; unit: string }
-export type Purchase = {
-  id: string
-  productName: string
-  qty: number
-  price: number
-  paid: boolean
-  date: string
-}
 export type Supplier = {
   id: string
   name: string
   phone: string
-  category: string
-  products: SupProduct[]
-  purchases: Purchase[]
+  note: string
 }
 
 export const uid = () => Math.random().toString(36).slice(2, 8)
@@ -49,6 +36,40 @@ export function money(n: number): string {
   const [int, dec] = abs.toFixed(2).split('.')
   const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
   return `${negative ? '-' : ''}$ ${grouped},${dec}`
+}
+
+function sameLocalDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  )
+}
+
+export function isToday(iso: string): boolean {
+  if (!iso || typeof iso !== 'string') return false
+  const trimmed = iso.trim()
+  if (!trimmed) return false
+  if (trimmed === 'Hoy') return true
+  if (trimmed === 'Ayer') return false
+  const parsed = new Date(trimmed)
+  if (Number.isNaN(parsed.getTime())) return false
+  return sameLocalDay(parsed, new Date())
+}
+
+export function formatDay(iso: string): string {
+  if (!iso || typeof iso !== 'string') return ''
+  const trimmed = iso.trim()
+  if (!trimmed) return ''
+  if (trimmed === 'Hoy' || trimmed === 'Ayer') return trimmed
+  const parsed = new Date(trimmed)
+  if (Number.isNaN(parsed.getTime())) return ''
+  const now = new Date()
+  if (sameLocalDay(parsed, now)) return 'Hoy'
+  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1)
+  if (sameLocalDay(parsed, yesterday)) return 'Ayer'
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(parsed.getDate())}/${pad(parsed.getMonth() + 1)}`
 }
 
 export const seedProducts: Product[] = [
@@ -95,40 +116,7 @@ export const seedExpenses: Expense[] = [
 ]
 
 export const seedSuppliers: Supplier[] = [
-  {
-    id: 's1',
-    name: 'Frigorífico Don Aldo',
-    phone: '11 4455-2301',
-    category: 'Carnes',
-    products: [
-      { id: 'sp1', name: 'Carne picada', price: 6800, unit: 'kg' },
-      { id: 'sp2', name: 'Bife de chorizo', price: 11200, unit: 'kg' },
-    ],
-    purchases: [
-      { id: 'c1', productName: 'Carne picada', qty: 10, price: 6800, paid: true, date: 'Hoy' },
-      { id: 'c2', productName: 'Bife de chorizo', qty: 6, price: 11200, paid: false, date: 'Hoy' },
-    ],
-  },
-  {
-    id: 's2',
-    name: 'Distribuidora La Fuente',
-    phone: '11 5120-8890',
-    category: 'Bebidas',
-    products: [
-      { id: 'sp3', name: 'Cerveza barril 30L', price: 68000, unit: 'barril' },
-      { id: 'sp4', name: 'Gaseosa 2.25L', price: 2100, unit: 'u.' },
-    ],
-    purchases: [{ id: 'c3', productName: 'Cerveza barril 30L', qty: 1, price: 68000, paid: false, date: 'Ayer' }],
-  },
-  {
-    id: 's3',
-    name: 'Verdulería El Huerto',
-    phone: '11 3398-7712',
-    category: 'Verduras',
-    products: [
-      { id: 'sp5', name: 'Tomate', price: 1900, unit: 'kg' },
-      { id: 'sp6', name: 'Lechuga', price: 1200, unit: 'u.' },
-    ],
-    purchases: [{ id: 'c4', productName: 'Tomate', qty: 12, price: 1900, paid: true, date: 'Hoy' }],
-  },
+  { id: 's1', name: 'Frigorífico Don Aldo', phone: '11 4455-2301', note: 'Carnes' },
+  { id: 's2', name: 'Distribuidora La Fuente', phone: '11 5120-8890', note: 'Bebidas' },
+  { id: 's3', name: 'Verdulería El Huerto', phone: '11 3398-7712', note: 'Verduras' },
 ]
