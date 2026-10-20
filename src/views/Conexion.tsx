@@ -1,6 +1,12 @@
 import { CameraView, useCameraPermissions } from 'expo-camera'
-import type { BarcodeScanningResult } from 'expo-camera'
-import { useEffect, useRef, useState } from 'react'
+import type {
+  BarcodeScanningResult,
+  BarcodeSettings,
+  ScanningOptions,
+  ScanningResult,
+  Subscription,
+} from 'expo-camera'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Text, useWindowDimensions, View } from 'react-native'
 
 import { parsePairingCode } from '../hub/pairing'
@@ -13,6 +19,9 @@ import { Btn, Card, Field, Header, LinkBtn, Num, Pill, PillTone, styles as ui } 
 type Target = 'panel' | 'mesas' | 'catalogo' | 'proveedores' | 'gastos' | 'conexion' | 'personalizar'
 
 const SCAN_RETRY_DELAY_MS = 1800
+const QR_SCANNER_OPTIONS: ScanningOptions & BarcodeSettings = {
+  barcodeTypes: ['qr'],
+}
 
 function connectionBadge(
   connection: ConnectionState,
@@ -47,9 +56,12 @@ export default function Conexion({ go }: { go: (v: Target) => void }) {
 
   const [permission, requestPermission] = useCameraPermissions()
   const [scanning, setScanning] = useState(false)
+  const [cameraReady, setCameraReady] = useState(false)
   const [requestingPermission, setRequestingPermission] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
   const scanLockedRef = useRef(false)
+  const modernLaunchRef = useRef(false)
+  const modernSubRef = useRef<Subscription | null>(null)
   const unlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [codeInput, setCodeInput] = useState('')
@@ -62,28 +74,36 @@ export default function Conexion({ go }: { go: (v: Target) => void }) {
   const [disconnecting, setDisconnecting] = useState(false)
   const busyRef = useRef(false)
 
-  useEffect(() => {
-    return () => {
-      if (unlockTimerRef.current !== null) {
-        clearTimeout(unlockTimerRef.current)
-        unlockTimerRef.current = null
-      }
-    }
-  }, [])
-
-  const clearUnlockTimer = () => {
+  const clearUnlockTimer = useCallback(() => {
     if (unlockTimerRef.current !== null) {
       clearTimeout(unlockTimerRef.current)
       unlockTimerRef.current = null
     }
-  }
+  }, [])
 
-  const closeScanner = () => {
+  const removeModernListener = useCallback(() => {
+    if (modernSubRef.current !== null) {
+      modernSubRef.current.remove()
+      modernSubRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      clearUnlockTimer()
+      removeModernListener()
+    }
+  }, [clearUnlockTimer, removeModernListener])
+
+  const closeScanner = useCallback(() => {
     clearUnlockTimer()
+    removeModernListener()
     scanLockedRef.current = false
+    modernLaunchRef.current = false
+    setCameraReady(false)
     setScanning(false)
     setScanError(null)
-  }
+  }, [clearUnlockTimer, removeModernListener])
 
   const split = width >= BREAKPOINTS.twoPane
   const badge = connectionBadge(s.connection, p)
@@ -109,11 +129,84 @@ export default function Conexion({ go }: { go: (v: Target) => void }) {
     ['GET', '/api/branding'],
   ]
 
-  const handleOpenScanner = () => {
-    if (isBusy || busyRef.current) return
+  const connectWithScannedPairing = useCallback(
+    async (parsed: Pairing) => {
+      closeScanner()
+      busyRef.current = true
+      setConnecting(true)
+      setArmedDisconnect(false)
+      try {
+        await s.connect(parsed)
+      } finally {
+        busyRef.current = false
+        setConnecting(false)
+      }
+    },
+    [closeScanner, s],
+  )
+
+  const handleModernBarcodeScanned = useCallback(
+    async (result: ScanningResult) => {
+      if (scanLockedRef.current || busyRef.current) return
+      scanLockedRef.current = true
+      modernLaunchRef.current = false
+      clearUnlockTimer()
+      removeModernListener()
+      void CameraView.dismissScanner().catch(() => {})
+
+      const rawData =
+        typeof result?.data === 'string' && result.data
+          ? result.data
+          : typeof result?.raw === 'string'
+            ? result.raw
+            : ''
+
+      let parsed: Pairing
+      try {
+        parsed = parsePairingCode(rawData)
+      } catch {
+        scanLockedRef.current = false
+        setScanError('Código QR inválido. Escaneá el código mitt://pair?... que muestra la PC.')
+        return
+      }
+
+      await connectWithScannedPairing(parsed)
+    },
+    [clearUnlockTimer, connectWithScannedPairing, removeModernListener],
+  )
+
+  const handleOpenScanner = async () => {
+    if (isBusy || busyRef.current || modernLaunchRef.current) return
     clearUnlockTimer()
+    removeModernListener()
     scanLockedRef.current = false
     setScanError(null)
+
+    if (CameraView.isModernBarcodeScannerAvailable) {
+      modernLaunchRef.current = true
+      modernSubRef.current = CameraView.onModernBarcodeScanned((event) => {
+        void handleModernBarcodeScanned(event)
+      })
+      try {
+        await CameraView.launchScanner(QR_SCANNER_OPTIONS)
+      } catch (err) {
+        removeModernListener()
+        scanLockedRef.current = false
+        const message = err instanceof Error ? err.message : String(err ?? '')
+        if (!/cancel/i.test(message)) {
+          setCameraReady(false)
+          setScanning(true)
+          setScanError(
+            'No se pudo iniciar el escáner del sistema. Probá con la cámara en pantalla o pegá el código manualmente.',
+          )
+        }
+      } finally {
+        modernLaunchRef.current = false
+      }
+      return
+    }
+
+    setCameraReady(false)
     setScanning(true)
   }
 
@@ -130,34 +223,35 @@ export default function Conexion({ go }: { go: (v: Target) => void }) {
     }
   }
 
-  const handleBarcodeScanned = async (result: BarcodeScanningResult) => {
-    if (!scanning || scanLockedRef.current || isBusy || busyRef.current) return
-    scanLockedRef.current = true
-    clearUnlockTimer()
+  const handleBarcodeScanned = useCallback(
+    async (result: BarcodeScanningResult) => {
+      if (!scanning || scanLockedRef.current || isBusy || busyRef.current) return
+      scanLockedRef.current = true
+      clearUnlockTimer()
 
-    let parsed: Pairing
-    try {
-      parsed = parsePairingCode(result.data)
-    } catch {
-      setScanError('Código QR inválido. Escaneá el código mitt://pair?... que muestra la PC.')
-      unlockTimerRef.current = setTimeout(() => {
-        unlockTimerRef.current = null
-        scanLockedRef.current = false
-      }, SCAN_RETRY_DELAY_MS)
-      return
-    }
+      const rawData =
+        typeof result?.data === 'string' && result.data
+          ? result.data
+          : typeof result?.raw === 'string'
+            ? result.raw
+            : ''
 
-    closeScanner()
-    busyRef.current = true
-    setConnecting(true)
-    setArmedDisconnect(false)
-    try {
-      await s.connect(parsed)
-    } finally {
-      busyRef.current = false
-      setConnecting(false)
-    }
-  }
+      let parsed: Pairing
+      try {
+        parsed = parsePairingCode(rawData)
+      } catch {
+        setScanError('Código QR inválido. Escaneá el código mitt://pair?... que muestra la PC.')
+        unlockTimerRef.current = setTimeout(() => {
+          unlockTimerRef.current = null
+          scanLockedRef.current = false
+        }, SCAN_RETRY_DELAY_MS)
+        return
+      }
+
+      await connectWithScannedPairing(parsed)
+    },
+    [clearUnlockTimer, connectWithScannedPairing, isBusy, scanning],
+  )
 
   const handleConnect = async () => {
     if (isBusy || busyRef.current) return
@@ -242,7 +336,7 @@ export default function Conexion({ go }: { go: (v: Target) => void }) {
         </Text>
       </View>
 
-      {s.hubError ? (
+      {s.hubError || scanError ? (
         <View
           style={{
             marginTop: 12,
@@ -251,7 +345,7 @@ export default function Conexion({ go }: { go: (v: Target) => void }) {
             backgroundColor: '#f3d5da',
           }}
         >
-          <Text style={[ui.btnLabel, { color: p.berry }]}>{s.hubError}</Text>
+          <Text style={[ui.btnLabel, { color: p.berry }]}>{s.hubError ?? scanError}</Text>
         </View>
       ) : null}
 
@@ -343,7 +437,9 @@ export default function Conexion({ go }: { go: (v: Target) => void }) {
             <CameraView
               style={{ flex: 1 }}
               facing="back"
-              barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+              autofocus={cameraReady ? 'on' : 'off'}
+              barcodeScannerSettings={QR_SCANNER_OPTIONS}
+              onCameraReady={() => setCameraReady(true)}
               onBarcodeScanned={(res) => void handleBarcodeScanned(res)}
               onMountError={() => {
                 setScanError('No se pudo iniciar la cámara en este dispositivo.')
@@ -427,13 +523,26 @@ export default function Conexion({ go }: { go: (v: Target) => void }) {
         {scanning ? (
           scannerPane
         ) : (
-          <Btn
-            p={p}
-            label="ESCANEAR QR"
-            variant="ghost"
-            disabled={isBusy}
-            onPress={handleOpenScanner}
-          />
+          <>
+            <Btn
+              p={p}
+              label="ESCANEAR QR"
+              variant="ghost"
+              disabled={isBusy}
+              onPress={() => void handleOpenScanner()}
+            />
+            {scanError ? (
+              <View
+                style={{
+                  padding: 10,
+                  borderRadius: 10,
+                  backgroundColor: '#f3d5da',
+                }}
+              >
+                <Text style={[ui.btnLabel, { color: p.berry }]}>{scanError}</Text>
+              </View>
+            ) : null}
+          </>
         )}
 
         {manual ? (
