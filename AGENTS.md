@@ -195,7 +195,7 @@ against `:8080` are allowed.
 ## 8. Status
 
 Current branch: `feat/react-native-app` (React Native port already merged into
-the branch; Kotlin deleted). Working tree clean at the start of this session.
+the branch; Kotlin deleted). HEAD `24708b4`; working tree clean.
 
 Done:
 - RN port of the seven sections with the web master's tokens.
@@ -228,22 +228,46 @@ Done:
 - **R1 — Test release `v0.5.0-rn-perf-qr`.** Version bumped to `0.5.0`; CI
   published the prerelease APK from commit `cbdb91a` (Android run `39503095218`
   succeeded in 8m36s).
+- **Q1 — Native QR scanner fix.** The `v0.5.0` release APK focused but the
+  inline `expo-camera` analyzer never fired `onBarcodeScanned`. `Conexión` now
+  launches the native Google code scanner (`launchScanner` +
+  `onModernBarcodeScanned`) when available, keeps the inline `CameraView` as
+  fallback, enables inline autofocus, and shows scan errors. Commit `24708b4`.
 
 In progress (this session):
-- None (T1–T5, P1/P2, and R1 complete).
+- Release prep for `v0.5.1-rn-qr-native`: version bump to `0.5.1`; push/tag
+  pending explicit authorization.
 
 Next steps:
-- On-device test of the P1/P2 release APK: first-tap response, no duplicate
-  submits, and QR pairing against a LAN `mitt` hub.
+- On-device test of the `v0.5.1-rn-qr-native` APK: native QR scanner against a
+  LAN `mitt` hub; verify the inline fallback and manual pairing. The `v0.5.0`
+  APK showed the preview but never detected the QR.
+- If the native scanner is unavailable, diagnose Google Play Services and the
+  fallback path.
 - If the app still feels heavy on device after P1, evaluate local-first/optimistic
   operational writes and `FlatList` virtualization for large lists.
-- Test APK: `v0.5.0-rn-perf-qr`
-  (https://github.com/joseph12n/mott/releases/tag/v0.5.0-rn-perf-qr).
+- Test APK: `v0.5.1-rn-qr-native` (pending); previous release
+  `v0.5.0-rn-perf-qr`:
+  https://github.com/joseph12n/mott/releases/tag/v0.5.0-rn-perf-qr
 - Open PR for `feat/react-native-app` and verify the GitHub Actions release APK build.
 
 ## 9. Session log
 
 Newest first. Each entry: date, work unit, what changed, verification, next step.
+
+- **2026-10-20 — Q1 (native QR scanner).** Diagnosed the `v0.5.0` release: the
+  camera preview and focus worked, but the inline `expo-camera`
+  `onBarcodeScanned` callback never fired, so the QR was never detected.
+  Replaced the primary pairing scanner with the native Google code scanner
+  (`CameraView.launchScanner` + `CameraView.onModernBarcodeScanned`) when
+  `CameraView.isModernBarcodeScannerAvailable`; kept the inline `CameraView` as
+  fallback, enabled inline autofocus, and surfaced scan errors in the status and
+  pairing cards. `src/views/Conexion.tsx`; commit `24708b4`. Implemented by
+  `agy`/Argon; the orchestrator reviewed the diff and reran the checks.
+  Verification: `npx tsc --noEmit` exited 0; `npm run test:hub` passed 18/18;
+  `npx expo export --platform android` exited 0 (657 modules, 1.8 MB).
+  Next: prepare the `v0.5.1-rn-qr-native` release APK and test the native scanner
+  on device.
 
 - **2026-10-20 — R1 (test release).** Bumped `package.json`, `package-lock.json`,
   and `app.json` to `0.5.0` (commit `cbdb91a`), pushed the branch and tag
