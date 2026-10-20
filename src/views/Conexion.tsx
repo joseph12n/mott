@@ -1,12 +1,18 @@
-import { useRef, useState } from 'react'
+import { CameraView, useCameraPermissions } from 'expo-camera'
+import type { BarcodeScanningResult } from 'expo-camera'
+import { useEffect, useRef, useState } from 'react'
 import { Text, useWindowDimensions, View } from 'react-native'
 
+import { parsePairingCode } from '../hub/pairing'
+import type { Pairing } from '../hub/pairing'
 import { ConnectionState, useStore } from '../store'
-import { BREAKPOINTS, Palette } from '../theme'
+import { BREAKPOINTS, Palette, radius } from '../theme'
 import { usePalette } from '../usePalette'
 import { Btn, Card, Field, Header, LinkBtn, Num, Pill, PillTone, styles as ui } from '../ui'
 
 type Target = 'panel' | 'mesas' | 'catalogo' | 'proveedores' | 'gastos' | 'conexion' | 'personalizar'
+
+const SCAN_RETRY_DELAY_MS = 1800
 
 function connectionBadge(
   connection: ConnectionState,
@@ -39,6 +45,13 @@ export default function Conexion({ go }: { go: (v: Target) => void }) {
   const p = usePalette()
   const { width } = useWindowDimensions()
 
+  const [permission, requestPermission] = useCameraPermissions()
+  const [scanning, setScanning] = useState(false)
+  const [requestingPermission, setRequestingPermission] = useState(false)
+  const [scanError, setScanError] = useState<string | null>(null)
+  const scanLockedRef = useRef(false)
+  const unlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   const [codeInput, setCodeInput] = useState('')
   const [manual, setManual] = useState(false)
   const [manualUrl, setManualUrl] = useState(s.pairing?.baseUrl ?? 'http://192.168.1.34:8080')
@@ -49,6 +62,29 @@ export default function Conexion({ go }: { go: (v: Target) => void }) {
   const [disconnecting, setDisconnecting] = useState(false)
   const busyRef = useRef(false)
 
+  useEffect(() => {
+    return () => {
+      if (unlockTimerRef.current !== null) {
+        clearTimeout(unlockTimerRef.current)
+        unlockTimerRef.current = null
+      }
+    }
+  }, [])
+
+  const clearUnlockTimer = () => {
+    if (unlockTimerRef.current !== null) {
+      clearTimeout(unlockTimerRef.current)
+      unlockTimerRef.current = null
+    }
+  }
+
+  const closeScanner = () => {
+    clearUnlockTimer()
+    scanLockedRef.current = false
+    setScanning(false)
+    setScanError(null)
+  }
+
   const split = width >= BREAKPOINTS.twoPane
   const badge = connectionBadge(s.connection, p)
   const isPaired = Boolean(s.pairing)
@@ -56,8 +92,8 @@ export default function Conexion({ go }: { go: (v: Target) => void }) {
 
   const steps = [
     'Abrí la sección Conexión en el servidor de la PC.',
-    'Copiá el código de vinculación (o la dirección y el token).',
-    'Pegalo acá y tocá Vincular.',
+    'Tocá Escanear QR y apuntá al código de la pantalla, o copiá el código de vinculación.',
+    'Si usás código manual, pegalo acá y tocá Vincular.',
   ]
 
   const endpoints: [string, string][] = [
@@ -73,8 +109,59 @@ export default function Conexion({ go }: { go: (v: Target) => void }) {
     ['GET', '/api/branding'],
   ]
 
+  const handleOpenScanner = () => {
+    if (isBusy || busyRef.current) return
+    clearUnlockTimer()
+    scanLockedRef.current = false
+    setScanError(null)
+    setScanning(true)
+  }
+
+  const handleRequestPermission = async () => {
+    if (requestingPermission) return
+    setRequestingPermission(true)
+    setScanError(null)
+    try {
+      await requestPermission()
+    } catch {
+      setScanError('No se pudo solicitar el permiso de cámara.')
+    } finally {
+      setRequestingPermission(false)
+    }
+  }
+
+  const handleBarcodeScanned = async (result: BarcodeScanningResult) => {
+    if (!scanning || scanLockedRef.current || isBusy || busyRef.current) return
+    scanLockedRef.current = true
+    clearUnlockTimer()
+
+    let parsed: Pairing
+    try {
+      parsed = parsePairingCode(result.data)
+    } catch {
+      setScanError('Código QR inválido. Escaneá el código mitt://pair?... que muestra la PC.')
+      unlockTimerRef.current = setTimeout(() => {
+        unlockTimerRef.current = null
+        scanLockedRef.current = false
+      }, SCAN_RETRY_DELAY_MS)
+      return
+    }
+
+    closeScanner()
+    busyRef.current = true
+    setConnecting(true)
+    setArmedDisconnect(false)
+    try {
+      await s.connect(parsed)
+    } finally {
+      busyRef.current = false
+      setConnecting(false)
+    }
+  }
+
   const handleConnect = async () => {
     if (isBusy || busyRef.current) return
+    closeScanner()
     busyRef.current = true
     setConnecting(true)
     setArmedDisconnect(false)
@@ -209,6 +296,115 @@ export default function Conexion({ go }: { go: (v: Target) => void }) {
     </Card>
   )
 
+  const scannerBadge: { label: string; tone: PillTone; dotColor: string } = !permission
+    ? { label: 'Verificando…', tone: 'mute', dotColor: p.mute }
+    : permission.granted
+      ? { label: 'Cámara activa', tone: 'brand', dotColor: p.brand }
+      : permission.canAskAgain
+        ? permission.status === 'denied'
+          ? { label: 'Permiso denegado', tone: 'sun', dotColor: p.berry }
+          : { label: 'Permiso requerido', tone: 'sun', dotColor: p.sunInk }
+        : { label: 'Permiso bloqueado', tone: 'berry', dotColor: p.berry }
+
+  const scannerPane = (
+    <View
+      style={{
+        padding: 12,
+        borderRadius: radius.control,
+        borderWidth: 1,
+        borderColor: p.line,
+        backgroundColor: p.sunk,
+        gap: 10,
+      }}
+    >
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <Text style={[ui.btnLabel, { color: p.ink, flex: 1 }]} numberOfLines={1}>
+          Escáner QR
+        </Text>
+        <Pill p={p} tone={scannerBadge.tone} dotColor={scannerBadge.dotColor}>
+          {scannerBadge.label}
+        </Pill>
+      </View>
+
+      {!permission ? (
+        <Text style={[ui.sub, { color: p.mute }]}>Verificando permiso de cámara…</Text>
+      ) : permission.granted ? (
+        <>
+          <View
+            style={{
+              height: 240,
+              borderRadius: radius.control,
+              overflow: 'hidden',
+              borderWidth: 1,
+              borderColor: p.line,
+              backgroundColor: p.paper,
+            }}
+          >
+            <CameraView
+              style={{ flex: 1 }}
+              facing="back"
+              barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+              onBarcodeScanned={(res) => void handleBarcodeScanned(res)}
+              onMountError={() => {
+                setScanError('No se pudo iniciar la cámara en este dispositivo.')
+              }}
+            />
+          </View>
+          <Text style={[ui.note, { color: p.mute }]}>
+            Apuntá la cámara al código QR que muestra la PC en la sección Conexión.
+          </Text>
+        </>
+      ) : permission.canAskAgain ? (
+        <>
+          <Text style={[ui.sub, { color: p.ink }]}>
+            {permission.status === 'denied'
+              ? 'El permiso de cámara fue denegado. Autorizalo para leer el código QR de la PC.'
+              : 'Permitir a mott escanear el código QR de la PC.'}
+          </Text>
+          <Btn
+            p={p}
+            label="PERMITIR CÁMARA"
+            loading={requestingPermission}
+            disabled={isBusy || requestingPermission}
+            onPress={() => void handleRequestPermission()}
+          />
+        </>
+      ) : (
+        <View
+          style={{
+            padding: 10,
+            borderRadius: 10,
+            backgroundColor: '#f3d5da',
+          }}
+        >
+          <Text style={[ui.sub, { color: p.berry, fontWeight: '700' }]}>
+            El permiso de cámara está bloqueado. Habilitalo desde Ajustes del sistema &gt; Aplicaciones &gt; mott &gt; Permisos &gt; Cámara, o usá la vinculación manual abajo.
+          </Text>
+        </View>
+      )}
+
+      {scanError ? (
+        <View
+          style={{
+            padding: 10,
+            borderRadius: 10,
+            backgroundColor: '#f3d5da',
+          }}
+        >
+          <Text style={[ui.btnLabel, { color: p.berry }]}>{scanError}</Text>
+        </View>
+      ) : null}
+
+      <Btn
+        p={p}
+        label="CANCELAR"
+        variant="ghost"
+        disabled={isBusy}
+        onPress={closeScanner}
+      />
+    </View>
+  )
+
   const pairingCard = (
     <Card p={p}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
@@ -223,11 +419,23 @@ export default function Conexion({ go }: { go: (v: Target) => void }) {
       </View>
       <Text style={[ui.sub, { color: p.mute, marginTop: 4 }]}>
         {manual
-          ? 'Ingresá la dirección LAN de la PC (con puerto) y el token de vinculación.'
-          : 'Pegá el código mitt://pair?... o el formato http://ip:puerto|token.'}
+          ? 'Escaneá el QR de la PC o ingresá la dirección LAN (con puerto) y el token de vinculación.'
+          : 'Escaneá el código QR de la PC o pegá el código mitt://pair?... o el formato http://ip:puerto|token.'}
       </Text>
 
       <View style={{ marginTop: 12, gap: 8 }}>
+        {scanning ? (
+          scannerPane
+        ) : (
+          <Btn
+            p={p}
+            label="ESCANEAR QR"
+            variant="ghost"
+            disabled={isBusy}
+            onPress={handleOpenScanner}
+          />
+        )}
+
         {manual ? (
           <>
             <Field

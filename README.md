@@ -40,8 +40,8 @@ always a text label with a dot — never color alone.
 - **Default URL:** `http://<pc-lan-ip>:8080` (plain HTTP on the LAN; Android cleartext
   traffic is enabled via `expo-build-properties`).
 - **Pairing code format:** `mitt://pair?url=<urlencoded-url>&token=<urlencoded-token>`
-  (or `http://<ip>:<port>|<token>`), entered by copy/paste or manual URL + token fields
-  in `Conexión` (no QR camera scanner yet).
+  (or `http://<ip>:<port>|<token>`), scanned with the in-screen QR camera scanner
+  (`expo-camera`) in `Conexión`, or entered via copy/paste or manual URL + token fields.
 - **Token storage:** the pairing token is stored in plain `AsyncStorage` on the device
   (`mott:pairing:v1`); this is documented as a current limitation.
 - **Hub-first rule:** when paired and online, pulling a snapshot replaces catalogue,
@@ -138,7 +138,6 @@ testing, **not** for a store upload.
 
 ## Limitations
 
-- Manual pairing only (copy/paste pairing code or URL + token); no QR camera scanner yet.
 - Pairing token is stored in plain `AsyncStorage`.
 - `GET /api/sales/today` on the hub uses the UTC day, not the bar's local timezone.
 - No item removal/void from an open tab, no table rename, no product delete (availability toggle only), and no supplier ledger or balances.

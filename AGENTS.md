@@ -44,6 +44,8 @@ companion of `mitt`, the **PC hub** (Go + SQLite) that lives at
 
 - Expo SDK 58, React Native 0.88, React 19.3, TypeScript 5.9.
 - State: React context + AsyncStorage (`src/store.tsx`).
+- Camera: `expo-camera` (`~58.0.11`) for QR pairing; the camera permission is
+  configured in `app.json`.
 - No navigation library: one `view` state in `App.tsx` drives the seven sections.
 - Commands:
   - `npm install`
@@ -57,19 +59,22 @@ companion of `mitt`, the **PC hub** (Go + SQLite) that lives at
 
 ```
 App.tsx                  shell: responsive rail/bottom nav, 7 sections
-app.json                 Expo config + expo-build-properties (android cleartext)
+app.json                 Expo config + expo-build-properties (android cleartext) +
+                         expo-camera (QR permission)
 src/theme.ts             design tokens, palette from brand + accent
 src/presets.ts           22 design presets from the web master
 src/usePalette.ts        palette hook derived from store brand + dark mode
 src/data.ts              domain types, seeds, money(), isToday(), formatDay()
 src/store.tsx            single JSON store + hub connection/sync + write-through actions
+                         + debounced persistence + AppState revalidation
 src/ui.tsx               Card/Btn/LinkBtn/Pill/StatusPill/Header/Field/Num/Bar vocabulary
+                         (Pressable buttons with busy/loading states)
 src/views/*.tsx          Panel, Mesas, Catálogo, Proveedores, Gastos,
-                         Conexión, Personalizar
+                         Conexión (manual + in-screen QR scanner), Personalizar
 src/hub/types.ts         wire DTOs (snake_case, cents, RFC3339 strings)
 src/hub/model.ts         app-facing view models for hub snapshots
 src/hub/pairing.ts       parse mitt://pair?url=...&token=... and url|token
-src/hub/client.ts        typed fetch client, bearer token, timeout, HubError
+src/hub/client.ts        typed fetch client, bearer token, 4s timeout, HubError
 src/hub/mappers.ts       hub <-> app domain mapping (pure functions)
 src/hub/queue.ts         persisted outbox: enqueue/coalesce/list/remove/bump
 src/hub/sync.ts          pullSnapshot() + drainQueue() (idempotent)
@@ -80,6 +85,8 @@ Persistence keys in `AsyncStorage`:
 - `mott:app-state:v1` (with legacy fallback `mitt:app-state:v1`): domain state,
   `productAvailable`, `productCategories`, `logoUrl`, `lastSyncAt`, `hubToday`.
   Validated field by field on load so a truncated payload falls back to seeds.
+  Writes are debounced (~400ms); at most 100 orders are persisted while the
+  in-memory state keeps the full snapshot.
 - `mott:pairing:v1`: `{ baseUrl, token }`.
 - `mott:pending:v1`: FIFO offline outbox queue (`PendingOp[]`).
 
@@ -95,7 +102,19 @@ Store connection state and actions:
 - Actions: `connect(input)`, `disconnect()`, `syncNow()`, `createTable`,
   `deleteTable`, `openTable`, `addItem`, `closeTable`, `createProduct`,
   `setProductAvailable`, `addExpense`, `createSupplier`, `updateSupplier`,
-  `deleteSupplier`, `saveBranding`.
+  `deleteSupplier`, `saveBranding`. `connect` accepts a scanned or pasted
+  `mitt://pair?...` code, the `url|token` form, or `{ baseUrl, token }`.
+
+**Pairing.** The `Conexión` screen scans the hub QR with an in-screen `expo-camera`
+pane (no modal); `parsePairingCode` validates it and `connect` starts the pull.
+Manual paste/URL remains available as the fallback.
+
+**Persistence and liveness.** Store writes are debounced (~400ms) and happen off
+the tap path; on `background`/`inactive` the latest state is flushed immediately.
+Persistence keeps at most 100 orders while the in-memory state keeps the full
+snapshot. When paired, returning to `active` revalidates with `GET /api/pairing`
+(2s timeout) and updates the connection badge without a full pull. The hub client
+defaults to a 4s timeout; network failures mark the connection `offline`.
 
 **Hub-first rule.** When paired and online, a pull replaces catalogue, tables,
 orders, expenses, suppliers and branding with hub data. Local seeds remain only
@@ -197,18 +216,58 @@ Done:
 - **T5 — Android cleartext + docs + final verification.** `app.json`,
   `package.json`, `package-lock.json`, `README.md`, `.gitignore`, `App.tsx`,
   `src/store.tsx`, `src/views/Panel.tsx`, `AGENTS.md`.
+- **P1 — Mobile performance and touch reliability (T1).** `src/ui.tsx` (`Pressable`
+  buttons with ripple/pressed/disabled/loading), busy guards in `Catalogo`,
+  `Conexion`, `Gastos`, `Mesas`, `Personalizar`, `Proveedores`, debounced
+  persistence + 100-order cap + `AppState` foreground revalidation in
+  `src/store.tsx`, and a 4s hub client timeout in `src/hub/client.ts`.
+  Commits `cc3a594`, `db188a1`.
+- **P2 — QR pairing (T2).** `expo-camera` (`~58.0.11`), `app.json` camera plugin
+  with `recordAudioAndroid: false`, in-screen QR scanner in
+  `src/views/Conexion.tsx`, README pairing docs.
 
 In progress (this session):
-- None (T1–T5 complete).
+- None (T1–T5 and P1/P2 complete).
 
 Next steps:
-- Camera QR scanner for `mitt://pair?...` codes (`expo-camera`).
-- On-device field test in a real bar against a LAN `mitt` hub.
+- On-device test of the P1/P2 release APK: first-tap response, no duplicate
+  submits, and QR pairing against a LAN `mitt` hub.
+- If the app still feels heavy on device after P1, evaluate local-first/optimistic
+  operational writes and `FlatList` virtualization for large lists.
+- Bump the app version and publish a new release APK for testing.
 - Open PR for `feat/react-native-app` and verify the GitHub Actions release APK build.
 
 ## 9. Session log
 
 Newest first. Each entry: date, work unit, what changed, verification, next step.
+
+- **2026-10-20 — P2 (T2 QR).** Added `expo-camera` (`~58.0.11`) and the in-screen
+  QR scanner in `Conexión`: `CameraView` with QR `barcodeScannerSettings`,
+  `useCameraPermissions` inline states, a synchronous scan lock with a 1.8s retry,
+  `parsePairingCode` + `connect`, and the manual paste/URL fallback. Added the
+  `expo-camera` plugin with `recordAudioAndroid: false` and the Spanish camera
+  permission; updated the README pairing section.
+  Verification: `npx tsc --noEmit` exited 0; `npm run test:hub` passed 18/18;
+  `npx expo export --platform android` exited 0 (657 modules, 1.8 MB);
+  `npx expo config --type public --json` resolved `android.permission.CAMERA`;
+  the prebuild manifest had `CAMERA`, no `RECORD_AUDIO`, and kept
+  `usesCleartextTraffic="true"`; the generated `android/` was removed.
+  Next: on-device QR scan test against a LAN `mitt` hub.
+
+- **2026-10-20 — P1 (T1 performance).** Replaced `Text.onPress` with full-target
+  `Pressable` buttons (ripple, pressed/disabled/loading, accessibility) and added
+  state + ref busy guards to the six async views to prevent double submissions.
+  Moved persistence to a 400ms debounced effect with a 100-order cap and immediate
+  background/inactive flush with the latest state; added `AppState` foreground
+  revalidation with `GET /api/pairing` (2s) and changed the client default timeout
+  to 4s.
+  Verification: `npx tsc --noEmit` exited 0; `npm run test:hub` passed 18/18;
+  `npx expo export --platform android` exited 0 (650 modules, 1.7 MB).
+  Commits `cc3a594`, `db188a1`.
+  Known tradeoff: the 100-order cap chooses the newest end by pairing state; after
+  a disconnect with more than 100 hub orders it can keep the wrong end until the
+  next pull. The hub remains the source of truth.
+  Next: P2 QR pairing.
 
 - **2026-10-20 — T5.** Installed `expo-build-properties` (`~58.0.11`) and configured
   `android.usesCleartextTraffic: true` in `app.json` so the release APK can reach the

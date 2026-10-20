@@ -17,6 +17,13 @@
             "usesCleartextTraffic": true
           }
         }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Permitir a mott escanear el código QR de la PC.",
+          "recordAudioAndroid": false
+        }
       ]
     ]
   }
